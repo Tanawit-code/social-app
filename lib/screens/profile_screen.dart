@@ -9,7 +9,8 @@ import '../services/storage_service.dart';
 import '../widgets/user_avatar.dart';
 import '../utils/image_data.dart';
 import 'chat_screen.dart';
-import 'home_feed_screen.dart' show formatRelativeTime, invalidateAuthorName;
+import 'home_feed_screen.dart'
+    show AuthorName, formatRelativeTime, invalidateAuthorName;
 
 /// โปรไฟล์ — ไม่ส่ง uid = โปรไฟล์ของตัวเอง (แก้ไขได้)
 /// ส่ง uid ของคนอื่น = ดูโปรไฟล์ + ติดตาม/เลิกติดตาม + ส่งข้อความ
@@ -130,23 +131,50 @@ class _ProfileScreenState extends State<ProfileScreen> {
     Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
   }
 
-  Widget _stat(String label, int count) {
-    return Column(
-      children: [
-        Text(
-          '$count',
-          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-        ),
-        Text(label, style: const TextStyle(color: Colors.black54, fontSize: 12)),
-      ],
+  static const _fbBlue = Color(0xFF1877F2);
+  static const _pageBg = Color(0xFFF0F2F5);
+  static const _btnGrey = Color(0xFFE4E6EB);
+  static const _months = [
+    'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
+    'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.',
+  ];
+
+  Future<void> _confirmUnfollow(String name) async {
+    final who = name.isEmpty ? 'ผู้ใช้นี้' : name;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text('เลิกติดตาม $who?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('ยกเลิก'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('เลิกติดตาม'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await _toggleFollow(true);
+  }
+
+  ButtonStyle _btnStyle({required Color bg, required Color fg}) {
+    return FilledButton.styleFrom(
+      backgroundColor: bg,
+      foregroundColor: fg,
+      minimumSize: const Size.fromHeight(44),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
     );
   }
 
   Widget _actions(String name, String bio, String photoUrl, bool isFollowing) {
     if (_isMe) {
-      return OutlinedButton.icon(
+      return FilledButton.icon(
+        style: _btnStyle(bg: _fbBlue, fg: Colors.white),
         onPressed: () => _editProfile(name, bio, photoUrl),
-        icon: const Icon(Icons.edit),
+        icon: const Icon(Icons.edit, size: 18),
         label: const Text('แก้ไขโปรไฟล์'),
       );
     }
@@ -154,31 +182,125 @@ class _ProfileScreenState extends State<ProfileScreen> {
       children: [
         Expanded(
           child: isFollowing
-              ? OutlinedButton.icon(
-                  onPressed: _busy ? null : () => _toggleFollow(true),
-                  icon: const Icon(Icons.person_remove_outlined),
-                  label: const Text('เลิกติดตาม'),
+              ? FilledButton.icon(
+                  style: _btnStyle(bg: _btnGrey, fg: Colors.black87),
+                  onPressed: _busy ? null : () => _confirmUnfollow(name),
+                  icon: const Icon(Icons.check, size: 18),
+                  label: const Text('กำลังติดตาม'),
                 )
               : FilledButton.icon(
+                  style: _btnStyle(bg: _fbBlue, fg: Colors.white),
                   onPressed: _busy ? null : () => _toggleFollow(false),
-                  icon: const Icon(Icons.person_add_alt_1),
+                  icon: const Icon(Icons.person_add_alt_1, size: 18),
                   label: const Text('ติดตาม'),
                 ),
         ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: OutlinedButton.icon(
+        const SizedBox(width: 8),
+        SizedBox(
+          width: 52,
+          child: FilledButton(
+            style: _btnStyle(bg: _btnGrey, fg: Colors.black87).copyWith(
+              padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+            ),
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute(
                 builder: (_) => ChatScreen(peerUid: _targetUid),
               ),
             ),
-            icon: const Icon(Icons.chat_bubble_outline),
-            label: const Text('ข้อความ'),
+            child: const Icon(Icons.chat_bubble, size: 20),
           ),
         ),
       ],
+    );
+  }
+
+  Widget _infoRow(IconData icon, Widget child) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: Colors.black54),
+          const SizedBox(width: 12),
+          Expanded(child: child),
+        ],
+      ),
+    );
+  }
+
+  Widget _countText(int n, String label) {
+    return Text.rich(
+      TextSpan(
+        children: [
+          TextSpan(
+            text: '$n',
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          TextSpan(text: ' $label'),
+        ],
+      ),
+    );
+  }
+
+  Widget _cover(String name, String bio, String photoUrl) {
+    // ปกไล่สี + รูปโปรไฟล์วงกลมใหญ่ซ้อนขอบล่างของปก (สูงรวม 150 + ครึ่งรูป)
+    return SizedBox(
+      height: 206,
+      child: Stack(
+        children: [
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 150,
+            child: Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Color(0xFF6750A4), Color(0xFF1877F2)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 94,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Stack(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                    ),
+                    child: PhotoAvatar(url: photoUrl, radius: 52),
+                  ),
+                  if (_isMe)
+                    Positioned(
+                      right: 2,
+                      bottom: 2,
+                      child: GestureDetector(
+                        onTap: () => _editProfile(name, bio, photoUrl),
+                        child: const CircleAvatar(
+                          radius: 16,
+                          backgroundColor: _btnGrey,
+                          child: Icon(
+                            Icons.camera_alt,
+                            size: 18,
+                            color: Colors.black87,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -201,8 +323,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
         final posts = snap.data!;
         if (posts.isEmpty) {
           return const Padding(
-            padding: EdgeInsets.all(20),
-            child: Center(child: Text('ยังไม่มีโพสต์')),
+            padding: EdgeInsets.all(24),
+            child: Center(
+              child: Text('ยังไม่มีโพสต์', style: TextStyle(color: Colors.black54)),
+            ),
           );
         }
         return Column(children: posts.map((p) => _PostTile(post: p)).toList());
@@ -210,82 +334,128 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  Widget _page(String title, Widget body) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0.5,
+      ),
+      body: body,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(_isMe ? 'โปรไฟล์ของฉัน' : 'โปรไฟล์')),
-      body: _deleting
-          ? const Center(child: CircularProgressIndicator())
-          : StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-              stream: _userStream,
-              builder: (context, snap) {
-                if (snap.hasError) {
-                  return Center(child: Text('โหลดโปรไฟล์ไม่สำเร็จ: ${snap.error}'));
-                }
-                if (!snap.hasData) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                final data = snap.data!.data();
-                if (data == null) {
-                  return const Center(child: Text('ไม่พบผู้ใช้นี้'));
-                }
-                final name = (data['name'] ?? '') as String;
-                final bio = (data['bio'] ?? '') as String;
-                final email = (data['email'] ?? '') as String;
-                final photoUrl = (data['photoUrl'] ?? '') as String;
-                final followers = List<String>.from(data['followers'] ?? []);
-                final following = List<String>.from(data['following'] ?? []);
-                final isFollowing = followers.contains(_myUid);
+    if (_deleting) {
+      return _page('', const Center(child: CircularProgressIndicator()));
+    }
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: _userStream,
+      builder: (context, snap) {
+        if (snap.hasError) {
+          return _page(
+            'โปรไฟล์',
+            Center(child: Text('โหลดโปรไฟล์ไม่สำเร็จ: ${snap.error}')),
+          );
+        }
+        if (!snap.hasData) {
+          return _page('โปรไฟล์', const Center(child: CircularProgressIndicator()));
+        }
+        final data = snap.data!.data();
+        if (data == null) {
+          return _page('โปรไฟล์', const Center(child: Text('ไม่พบผู้ใช้นี้')));
+        }
+        final name = (data['name'] ?? '') as String;
+        final bio = (data['bio'] ?? '') as String;
+        final email = (data['email'] ?? '') as String;
+        final photoUrl = (data['photoUrl'] ?? '') as String;
+        final followers = List<String>.from(data['followers'] ?? []);
+        final following = List<String>.from(data['following'] ?? []);
+        final isFollowing = followers.contains(_myUid);
+        final joined = (data['createdAt'] as Timestamp?)?.toDate();
 
-                return ListView(
-                  padding: const EdgeInsets.all(20),
+        return _page(
+          name.isEmpty ? 'โปรไฟล์' : name,
+          ListView(
+            padding: EdgeInsets.zero,
+            children: [
+              Container(
+                color: Colors.white,
+                child: Column(
                   children: [
-                    Center(child: PhotoAvatar(url: photoUrl, radius: 44)),
-                    const SizedBox(height: 12),
-                    Center(
+                    _cover(name, bio, photoUrl),
+                    const SizedBox(height: 10),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            name.isEmpty ? 'ผู้ใช้ไม่ทราบชื่อ' : name,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          if (bio.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              bio,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(color: Colors.black54),
+                            ),
+                          ],
+                          const SizedBox(height: 16),
+                          _actions(name, bio, photoUrl, isFollowing),
+                          const SizedBox(height: 12),
+                          _infoRow(
+                            Icons.people_alt_outlined,
+                            _countText(followers.length, 'ผู้ติดตาม'),
+                          ),
+                          _infoRow(
+                            Icons.person_add_alt_outlined,
+                            _countText(following.length, 'กำลังติดตาม'),
+                          ),
+                          if (_isMe && email.isNotEmpty)
+                            _infoRow(Icons.mail_outline, Text(email)),
+                          if (joined != null)
+                            _infoRow(
+                              Icons.calendar_month_outlined,
+                              Text(
+                                'เข้าร่วมเมื่อ ${joined.day} ${_months[joined.month - 1]} ${joined.year + 543}',
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                color: _pageBg,
+                padding: const EdgeInsets.all(10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(4, 6, 4, 10),
                       child: Text(
-                        name.isEmpty ? 'ผู้ใช้ไม่ทราบชื่อ' : name,
-                        style: const TextStyle(
-                          fontSize: 18,
+                        'โพสต์',
+                        style: TextStyle(
+                          fontSize: 17,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                     ),
-                    if (_isMe && email.isNotEmpty)
-                      Center(
-                        child: Text(
-                          email,
-                          style: const TextStyle(color: Colors.black54),
-                        ),
-                      ),
-                    if (bio.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Center(child: Text(bio, textAlign: TextAlign.center)),
-                    ],
-                    const SizedBox(height: 16),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        _stat('ผู้ติดตาม', followers.length),
-                        _stat('กำลังติดตาม', following.length),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    _actions(name, bio, photoUrl, isFollowing),
-                    const SizedBox(height: 20),
-                    const Divider(),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 8),
-                      child: Text(
-                        'โพสต์',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ),
                     _postsSection(),
                     if (_isMe) ...[
-                      const SizedBox(height: 30),
-                      const Divider(),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 24),
                       Text(
                         'โซนอันตราย',
                         style: TextStyle(
@@ -304,11 +474,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         icon: const Icon(Icons.delete_forever),
                         label: const Text('ลบบัญชีถาวร'),
                       ),
+                      const SizedBox(height: 16),
                     ],
                   ],
-                );
-              },
-            ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -320,15 +494,43 @@ class _PostTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
+      color: Colors.white,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0.5,
       margin: const EdgeInsets.only(bottom: 10),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (post.content.isNotEmpty) Text(post.content),
+            Row(
+              children: [
+                UserAvatar(uid: post.authorId, radius: 18),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      AuthorName(uid: post.authorId),
+                      Text(
+                        formatRelativeTime(post.createdAt),
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Colors.black54,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            if (post.content.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Text(post.content, style: const TextStyle(fontSize: 15)),
+            ],
             if (post.mediaUrl != null) ...[
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
               ClipRRect(
                 borderRadius: BorderRadius.circular(8),
                 child: AppImage(
@@ -339,22 +541,19 @@ class _PostTile extends StatelessWidget {
                 ),
               ),
             ],
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Text(
-                  formatRelativeTime(post.createdAt),
-                  style: const TextStyle(fontSize: 11, color: Colors.black54),
-                ),
-                const Spacer(),
-                const Icon(Icons.thumb_up, size: 14, color: Colors.blue),
-                const SizedBox(width: 4),
-                Text(
-                  '${post.likeCount}',
-                  style: const TextStyle(fontSize: 12, color: Colors.black54),
-                ),
-              ],
-            ),
+            if (post.likeCount > 0) ...[
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  const Icon(Icons.thumb_up, size: 14, color: Colors.blue),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${post.likeCount}',
+                    style: const TextStyle(fontSize: 12, color: Colors.black54),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),

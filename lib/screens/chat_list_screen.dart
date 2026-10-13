@@ -4,7 +4,7 @@ import '../services/auth_service.dart';
 import '../services/chat_service.dart';
 import 'chat_screen.dart';
 import '../widgets/user_avatar.dart';
-import 'home_feed_screen.dart' show AuthorName;
+import 'home_feed_screen.dart' show AuthorName, formatRelativeTime;
 
 class ChatListScreen extends StatelessWidget {
   const ChatListScreen({super.key});
@@ -44,10 +44,25 @@ class ChatListScreen extends StatelessWidget {
                   .cast<String>()
                   .firstWhere((u) => u != me, orElse: () => '');
               return ListTile(
-                leading: UserAvatar(uid: peer),
-                title: AuthorName(uid: peer),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 6,
+                ),
+                leading: UserAvatar(uid: peer, radius: 26),
+                title: AuthorName(
+                  uid: peer,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+                trailing: Text(
+                  formatRelativeTime(d['lastAt'] as Timestamp?),
+                  style: const TextStyle(fontSize: 11, color: Colors.black45),
+                ),
                 subtitle: Text(
                   d['lastMessage'] ?? '',
+                  style: const TextStyle(color: Colors.black54),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
