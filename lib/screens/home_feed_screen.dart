@@ -3,7 +3,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/post_model.dart';
 import '../services/auth_service.dart';
 import '../services/post_service.dart';
+import '../services/notification_service.dart';
 import 'create_post_screen.dart';
+import 'profile_screen.dart';
+import '../widgets/user_avatar.dart';
+import '../utils/image_data.dart';
 
 class HomeFeedScreen extends StatefulWidget {
   const HomeFeedScreen({super.key});
@@ -34,7 +38,26 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         actions: [
-          IconButton(icon: const Icon(Icons.search), onPressed: () {}),
+          IconButton(
+            icon: const Icon(Icons.search),
+            onPressed: () => Navigator.pushNamed(context, '/search'),
+          ),
+          IconButton(
+            icon: const Icon(Icons.chat_bubble_outline),
+            onPressed: () => Navigator.pushNamed(context, '/chats'),
+          ),
+          StreamBuilder<int>(
+            stream: NotificationService().unreadCount(uid),
+            builder: (context, s) => Badge(
+              isLabelVisible: (s.data ?? 0) > 0,
+              label: Text('${s.data ?? 0}'),
+              child: IconButton(
+                icon: const Icon(Icons.notifications_none),
+                onPressed: () =>
+                    Navigator.pushNamed(context, '/notifications'),
+              ),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.person_outline),
             onPressed: () => Navigator.pushNamed(context, '/profile'),
@@ -106,7 +129,7 @@ class _ComposerBar extends StatelessWidget {
           children: [
             Row(
               children: [
-                const CircleAvatar(child: Icon(Icons.person)),
+                UserAvatar(uid: uid),
                 const SizedBox(width: 10),
                 Expanded(
                   child: GestureDetector(
@@ -303,6 +326,13 @@ class _PostCardState extends State<_PostCard> {
     }
   }
 
+  void _openProfile() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => ProfileScreen(uid: post.authorId)),
+    );
+  }
+
   void _openComments() {
     showModalBottomSheet(
       context: context,
@@ -382,13 +412,19 @@ class _PostCardState extends State<_PostCard> {
               children: [
                 Row(
                   children: [
-                    const CircleAvatar(child: Icon(Icons.person)),
+                    GestureDetector(
+                      onTap: _openProfile,
+                      child: UserAvatar(uid: post.authorId),
+                    ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          AuthorName(uid: post.authorId),
+                          GestureDetector(
+                            onTap: _openProfile,
+                            child: AuthorName(uid: post.authorId),
+                          ),
                           Text(
                             formatRelativeTime(post.createdAt),
                             style: const TextStyle(
@@ -446,15 +482,11 @@ class _PostCardState extends State<_PostCard> {
                   const SizedBox(height: 8),
                   ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                    child: Image.network(
-                      post.mediaUrl!,
+                    child: AppImage(
+                      src: post.mediaUrl!,
                       width: double.infinity,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Container(
-                        height: 150,
-                        color: const Color(0xFFE4E6EB),
-                        child: const Center(child: Text('โหลดรูปไม่สำเร็จ')),
-                      ),
+                      errorHeight: 150,
                     ),
                   ),
                 ],
@@ -660,9 +692,9 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const CircleAvatar(
+                            UserAvatar(
+                              uid: data['authorId'] ?? '',
                               radius: 16,
-                              child: Icon(Icons.person, size: 16),
                             ),
                             const SizedBox(width: 8),
                             Expanded(
@@ -827,3 +859,6 @@ class _ReportDialogState extends State<_ReportDialog> {
     );
   }
 }
+
+/// ล้าง cache ชื่อของ uid นี้ (เรียกหลังแก้ไขโปรไฟล์)
+void invalidateAuthorName(String uid) => _AuthorNameState._cache.remove(uid);

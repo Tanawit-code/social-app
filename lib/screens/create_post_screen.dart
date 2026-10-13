@@ -34,7 +34,9 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     try {
       final picked = await _picker.pickImage(
         source: ImageSource.gallery,
-        imageQuality: 80,
+        imageQuality: 55,
+        maxWidth: 640,
+        maxHeight: 640,
       );
       if (picked != null) {
         final bytes = await picked.readAsBytes();

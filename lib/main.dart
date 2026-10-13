@@ -7,6 +7,9 @@ import 'screens/register_screen.dart';
 import 'screens/home_feed_screen.dart';
 import 'screens/create_post_screen.dart';
 import 'screens/profile_screen.dart';
+import 'screens/search_screen.dart';
+import 'screens/notifications_screen.dart';
+import 'screens/chat_list_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -41,6 +44,9 @@ class MyApp extends StatelessWidget {
         '/home': (context) => const HomeFeedScreen(),
         '/create-post': (context) => const CreatePostScreen(),
         '/profile': (context) => const ProfileScreen(),
+        '/search': (context) => const SearchScreen(),
+        '/notifications': (context) => const NotificationsScreen(),
+        '/chats': (context) => const ChatListScreen(),
       },
     );
   }
