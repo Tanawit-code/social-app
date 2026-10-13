@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import '../services/auth_service.dart';
 import '../services/post_service.dart';
 import '../services/storage_service.dart';
+import '../services/video_upload_service.dart';
 
 class CreatePostScreen extends StatefulWidget {
   const CreatePostScreen({super.key});
@@ -17,10 +18,13 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   final _authService = AuthService();
   final _postService = PostService();
   final _storageService = StorageService();
+  final _videoService = VideoUploadService();
   final _picker = ImagePicker();
 
   // ใช้ bytes แทน File เพราะ File ของ dart:io ใช้กับ Flutter Web ไม่ได้
   Uint8List? _selectedImageBytes;
+  Uint8List? _selectedVideoBytes;
+  String? _selectedVideoName;
   bool _submitting = false;
   String? _errorText;
 
@@ -40,10 +44,41 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       );
       if (picked != null) {
         final bytes = await picked.readAsBytes();
-        setState(() => _selectedImageBytes = bytes);
+        setState(() {
+          _selectedImageBytes = bytes;
+          _selectedVideoBytes =
+              null; // 1 โพสต์ = รูปหรือวิดีโออย่างใดอย่างหนึ่ง
+          _selectedVideoName = null;
+        });
       }
     } catch (e) {
       setState(() => _errorText = 'เลือกรูปไม่สำเร็จ ลองใหม่อีกครั้ง');
+    }
+  }
+
+  Future<void> _pickVideo() async {
+    try {
+      final picked = await _picker.pickVideo(
+        source: ImageSource.gallery,
+        maxDuration: const Duration(seconds: VideoUploadService.maxSeconds),
+      );
+      if (picked == null) return;
+      final bytes = await picked.readAsBytes();
+      if (bytes.length > VideoUploadService.maxBytes) {
+        setState(
+          () => _errorText =
+              'วิดีโอใหญ่เกินไป (ไม่เกิน ${VideoUploadService.maxBytes ~/ (1024 * 1024)} MB)',
+        );
+        return;
+      }
+      setState(() {
+        _errorText = null;
+        _selectedVideoBytes = bytes;
+        _selectedVideoName = picked.name;
+        _selectedImageBytes = null;
+      });
+    } catch (e) {
+      setState(() => _errorText = 'เลือกวิดีโอไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
   }
 
@@ -55,9 +90,11 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       setState(() => _errorText = 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่');
       return;
     }
-    if (content.isEmpty && _selectedImageBytes == null) {
+    if (content.isEmpty &&
+        _selectedImageBytes == null &&
+        _selectedVideoBytes == null) {
       setState(
-        () => _errorText = 'กรุณาใส่ข้อความหรือเลือกรูปอย่างน้อย 1 อย่าง',
+        () => _errorText = 'กรุณาใส่ข้อความ รูป หรือวิดีโออย่างน้อย 1 อย่าง',
       );
       return;
     }
@@ -77,6 +114,12 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
           uid: user.uid,
         );
         mediaType = 'image';
+      } else if (_selectedVideoBytes != null) {
+        mediaUrl = await _videoService.uploadVideoBytes(
+          bytes: _selectedVideoBytes!,
+          filename: _selectedVideoName ?? 'video.mp4',
+        );
+        mediaType = 'video';
       }
 
       await _postService.createPost(
@@ -164,11 +207,57 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                   ),
                 ],
               ),
+            if (_selectedVideoBytes != null)
+              Card(
+                margin: EdgeInsets.zero,
+                child: ListTile(
+                  leading: const Icon(Icons.videocam, size: 32),
+                  title: Text(
+                    _selectedVideoName ?? 'video',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    '${(_selectedVideoBytes!.length / (1024 * 1024)).toStringAsFixed(1)} MB',
+                  ),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: _submitting
+                        ? null
+                        : () => setState(() {
+                            _selectedVideoBytes = null;
+                            _selectedVideoName = null;
+                          }),
+                  ),
+                ),
+              ),
+            if (_submitting && _selectedVideoBytes != null)
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Text(
+                  'กำลังอัปโหลดวิดีโอ อาจใช้เวลาสักครู่...',
+                  style: TextStyle(fontSize: 13),
+                ),
+              ),
             const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: _submitting ? null : _pickImage,
-              icon: const Icon(Icons.image_outlined),
-              label: const Text('เพิ่มรูปภาพ'),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _submitting ? null : _pickImage,
+                    icon: const Icon(Icons.image_outlined),
+                    label: const Text('เพิ่มรูปภาพ'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _submitting ? null : _pickVideo,
+                    icon: const Icon(Icons.videocam_outlined),
+                    label: const Text('เพิ่มวิดีโอ'),
+                  ),
+                ),
+              ],
             ),
           ],
         ),

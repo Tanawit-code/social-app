@@ -27,21 +27,35 @@ class NotificationService {
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> stream(String uid) {
-    return _col(uid).orderBy('createdAt', descending: true).limit(50).snapshots();
+    return _col(
+      uid,
+    ).orderBy('createdAt', descending: true).limit(50).snapshots();
   }
 
-  Stream<int> unreadCount(String uid) {
+  /// จำนวนที่ยังไม่อ่าน แยกเป็น 2 กลุ่ม
+  /// messages: true  = แจ้งเตือนข้อความแชท (แสดงที่ไอคอนแชท)
+  /// messages: false = อย่างอื่น เช่น ติดตาม/ไลก์/คอมเมนต์ (แสดงที่ไอคอนกระดิ่ง)
+  /// นับฝั่ง client จาก query เดียว จึงไม่ต้องสร้าง index เพิ่มใน Firestore
+  Stream<int> unreadCount(String uid, {required bool messages}) {
     return _col(uid)
         .where('isRead', isEqualTo: false)
         .snapshots()
-        .map((s) => s.size);
+        .map(
+          (s) => s.docs
+              .where((d) => (d.data()['type'] == 'message') == messages)
+              .length,
+        );
   }
 
-  Future<void> markAllRead(String uid) async {
+  /// ทำเครื่องหมายอ่านแล้วเฉพาะกลุ่ม (ข้อความแชท หรือ อย่างอื่น)
+  Future<void> markRead(String uid, {required bool messages}) async {
     final snap = await _col(uid).where('isRead', isEqualTo: false).get();
-    if (snap.docs.isEmpty) return;
+    final targets = snap.docs
+        .where((d) => (d.data()['type'] == 'message') == messages)
+        .toList();
+    if (targets.isEmpty) return;
     final batch = _db.batch();
-    for (final d in snap.docs) {
+    for (final d in targets) {
       batch.update(d.reference, {'isRead': true});
     }
     await batch.commit();

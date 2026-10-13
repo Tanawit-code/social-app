@@ -4,7 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'firebase_options.dart';
 import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
-import 'screens/home_feed_screen.dart';
+import 'screens/main_shell.dart';
 import 'screens/create_post_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/search_screen.dart';
@@ -41,7 +41,7 @@ class MyApp extends StatelessWidget {
       routes: {
         '/login': (context) => const LoginScreen(),
         '/register': (context) => const RegisterScreen(),
-        '/home': (context) => const HomeFeedScreen(),
+        '/home': (context) => const MainShell(),
         '/create-post': (context) => const CreatePostScreen(),
         '/profile': (context) => const ProfileScreen(),
         '/search': (context) => const SearchScreen(),

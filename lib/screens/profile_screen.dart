@@ -9,6 +9,7 @@ import '../services/storage_service.dart';
 import '../widgets/user_avatar.dart';
 import '../utils/image_data.dart';
 import 'chat_screen.dart';
+import '../widgets/post_media.dart';
 import 'home_feed_screen.dart'
     show AuthorName, formatRelativeTime, invalidateAuthorName;
 
@@ -84,7 +85,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
     );
     if (saved == true) {
-      invalidateAuthorName(_myUid); // ให้ชื่อใหม่แสดงในฟีด/คอมเมนต์ที่โหลดครั้งถัดไป
+      invalidateAuthorName(
+        _myUid,
+      ); // ให้ชื่อใหม่แสดงในฟีด/คอมเมนต์ที่โหลดครั้งถัดไป
       _toast('บันทึกโปรไฟล์แล้ว');
     }
   }
@@ -135,8 +138,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
   static const _pageBg = Color(0xFFF0F2F5);
   static const _btnGrey = Color(0xFFE4E6EB);
   static const _months = [
-    'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
-    'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.',
+    'ม.ค.',
+    'ก.พ.',
+    'มี.ค.',
+    'เม.ย.',
+    'พ.ค.',
+    'มิ.ย.',
+    'ก.ค.',
+    'ส.ค.',
+    'ก.ย.',
+    'ต.ค.',
+    'พ.ย.',
+    'ธ.ค.',
   ];
 
   Future<void> _confirmUnfollow(String name) async {
@@ -199,9 +212,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
         SizedBox(
           width: 52,
           child: FilledButton(
-            style: _btnStyle(bg: _btnGrey, fg: Colors.black87).copyWith(
-              padding: const WidgetStatePropertyAll(EdgeInsets.zero),
-            ),
+            style: _btnStyle(
+              bg: _btnGrey,
+              fg: Colors.black87,
+            ).copyWith(padding: const WidgetStatePropertyAll(EdgeInsets.zero)),
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute(
@@ -325,7 +339,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
           return const Padding(
             padding: EdgeInsets.all(24),
             child: Center(
-              child: Text('ยังไม่มีโพสต์', style: TextStyle(color: Colors.black54)),
+              child: Text(
+                'ยังไม่มีโพสต์',
+                style: TextStyle(color: Colors.black54),
+              ),
             ),
           );
         }
@@ -364,7 +381,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
           );
         }
         if (!snap.hasData) {
-          return _page('โปรไฟล์', const Center(child: CircularProgressIndicator()));
+          return _page(
+            'โปรไฟล์',
+            const Center(child: CircularProgressIndicator()),
+          );
         }
         final data = snap.data!.data();
         if (data == null) {
@@ -533,10 +553,9 @@ class _PostTile extends StatelessWidget {
               const SizedBox(height: 10),
               ClipRRect(
                 borderRadius: BorderRadius.circular(8),
-                child: AppImage(
-                  src: post.mediaUrl!,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
+                child: PostMedia(
+                  url: post.mediaUrl!,
+                  type: post.mediaType,
                   errorHeight: 120,
                 ),
               ),

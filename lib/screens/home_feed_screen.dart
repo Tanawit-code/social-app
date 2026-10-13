@@ -3,11 +3,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/post_model.dart';
 import '../services/auth_service.dart';
 import '../services/post_service.dart';
-import '../services/notification_service.dart';
 import 'create_post_screen.dart';
 import 'profile_screen.dart';
 import '../widgets/user_avatar.dart';
 import '../utils/image_data.dart';
+import '../widgets/post_media.dart';
 
 class HomeFeedScreen extends StatefulWidget {
   const HomeFeedScreen({super.key});
@@ -37,31 +37,8 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
           'Social',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
+        // ค้นหา/แชท/แจ้งเตือน/โปรไฟล์ ย้ายไปอยู่ bottom bar (MainShell) แล้ว
         actions: [
-          IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: () => Navigator.pushNamed(context, '/search'),
-          ),
-          IconButton(
-            icon: const Icon(Icons.chat_bubble_outline),
-            onPressed: () => Navigator.pushNamed(context, '/chats'),
-          ),
-          StreamBuilder<int>(
-            stream: NotificationService().unreadCount(uid),
-            builder: (context, s) => Badge(
-              isLabelVisible: (s.data ?? 0) > 0,
-              label: Text('${s.data ?? 0}'),
-              child: IconButton(
-                icon: const Icon(Icons.notifications_none),
-                onPressed: () =>
-                    Navigator.pushNamed(context, '/notifications'),
-              ),
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.person_outline),
-            onPressed: () => Navigator.pushNamed(context, '/profile'),
-          ),
           IconButton(icon: const Icon(Icons.logout), onPressed: _logout),
         ],
       ),
@@ -482,10 +459,9 @@ class _PostCardState extends State<_PostCard> {
                   const SizedBox(height: 8),
                   ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                    child: AppImage(
-                      src: post.mediaUrl!,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
+                    child: PostMedia(
+                      url: post.mediaUrl!,
+                      type: post.mediaType,
                       errorHeight: 150,
                     ),
                   ),
@@ -692,10 +668,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            UserAvatar(
-                              uid: data['authorId'] ?? '',
-                              radius: 16,
-                            ),
+                            UserAvatar(uid: data['authorId'] ?? '', radius: 16),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Container(

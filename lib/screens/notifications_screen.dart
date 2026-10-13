@@ -16,14 +16,14 @@ class NotificationsScreen extends StatefulWidget {
 class _NotificationsScreenState extends State<NotificationsScreen> {
   final _service = NotificationService();
   final _uid = AuthService().currentUser?.uid ?? '';
-  late final Stream<QuerySnapshot<Map<String, dynamic>>> _stream =
-      _service.stream(_uid);
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _stream = _service
+      .stream(_uid);
 
   @override
   void initState() {
     super.initState();
     // เปิดหน้านี้ = ถือว่าอ่านแล้ว (badge หายทันที)
-    _service.markAllRead(_uid);
+    _service.markRead(_uid, messages: false);
   }
 
   String _action(String type) {
@@ -69,7 +69,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           if (!snap.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
-          final docs = snap.data!.docs;
+          // ข้อความแชทไปแสดงที่ไอคอนแชทแล้ว หน้านี้เหลือเฉพาะอย่างอื่น
+          final docs = snap.data!.docs
+              .where((d) => d.data()['type'] != 'message')
+              .toList();
           if (docs.isEmpty) {
             return const Center(child: Text('ยังไม่มีการแจ้งเตือน'));
           }
@@ -89,23 +92,27 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   ],
                 ),
                 subtitle: (d['text'] as String?) != null
-                    ? Text(d['text'], maxLines: 1, overflow: TextOverflow.ellipsis)
+                    ? Text(
+                        d['text'],
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      )
                     : null,
                 onTap: type == 'message'
                     ? () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => ChatScreen(peerUid: from),
-                          ),
-                        )
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ChatScreen(peerUid: from),
+                        ),
+                      )
                     : type == 'follow'
-                        ? () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => ProfileScreen(uid: from),
-                              ),
-                            )
-                        : null,
+                    ? () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ProfileScreen(uid: from),
+                        ),
+                      )
+                    : null,
               );
             },
           );
