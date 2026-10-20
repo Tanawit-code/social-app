@@ -10,6 +10,7 @@ class StorageService {
   static const _maxPostBytes = 250 * 1024;
   static const _maxChatBytes = 200 * 1024;
   static const _maxAvatarBytes = 100 * 1024;
+  static const _maxCoverBytes = 300 * 1024;
 
   Future<String> uploadPostImageBytes({
     required Uint8List bytes,
@@ -25,6 +26,11 @@ class StorageService {
     required Uint8List bytes,
     required String uid,
   }) async => _encode(bytes, _maxAvatarBytes, 'รูปโปรไฟล์');
+
+  Future<String> uploadCoverImageBytes({
+    required Uint8List bytes,
+    required String uid,
+  }) async => _encode(bytes, _maxCoverBytes, 'รูปปก');
 
   /// รูปอยู่ในเอกสารอยู่แล้ว ไม่มีไฟล์ให้ลบ (คงไว้เพื่อไม่ต้องแก้ที่เรียกใช้)
   Future<void> deleteByUrl(String url) async {}

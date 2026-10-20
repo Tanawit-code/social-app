@@ -21,6 +21,9 @@ dependencies:
   cloud_firestore: ^5.4.4
   firebase_storage: ^12.3.4
   image_picker: ^1.1.2
+  video_player: ^2.9.2
+  http: ^1.2.2
+  share_plus: ^13.3.1
 
 dev_dependencies:
   flutter_test:
@@ -28,6 +31,10 @@ dev_dependencies:
 
 
   flutter_lints: ^6.0.0
+
+dependency_overrides:
+  # Avoid the native-assets hook in 2.5+, which breaks with SDK paths containing spaces.
+  path_provider_foundation: 2.4.1
 
 
 # The following section is specific to Flutter packages.

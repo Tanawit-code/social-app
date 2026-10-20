@@ -178,6 +178,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   IconButton(
+                    tooltip: 'ส่งรูปภาพ',
                     icon: const Icon(Icons.image, color: _messengerBlue),
                     onPressed: _sending ? null : _sendImage,
                   ),
@@ -309,6 +310,7 @@ class _MessageRow extends StatelessWidget {
               top: 8,
               right: 8,
               child: IconButton(
+                tooltip: 'ปิด',
                 icon: const Icon(Icons.close, color: Colors.white),
                 onPressed: () => Navigator.pop(context),
               ),

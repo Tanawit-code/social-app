@@ -7,9 +7,9 @@ import '../services/auth_service.dart';
 import '../services/follow_service.dart';
 import '../services/storage_service.dart';
 import '../widgets/user_avatar.dart';
+import '../widgets/post_media.dart';
 import '../utils/image_data.dart';
 import 'chat_screen.dart';
-import '../widgets/post_media.dart';
 import 'home_feed_screen.dart'
     show AuthorName, formatRelativeTime, invalidateAuthorName;
 
@@ -73,6 +73,60 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  /// เมนูเปลี่ยน/ลบรูปปก (เฉพาะโปรไฟล์ตัวเอง)
+  Future<void> _coverMenu(String coverUrl) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('เลือกรูปปกจากเครื่อง'),
+              onTap: () => Navigator.pop(ctx, 'pick'),
+            ),
+            if (coverUrl.isNotEmpty)
+              ListTile(
+                leading: const Icon(Icons.delete_outline),
+                title: const Text('ลบรูปปก (กลับเป็นพื้นสีเดิม)'),
+                onTap: () => Navigator.pop(ctx, 'remove'),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (action == 'pick') await _pickCover();
+    if (action == 'remove') await _saveCover('');
+  }
+
+  Future<void> _pickCover() async {
+    try {
+      final picked = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 60,
+        maxWidth: 1024,
+        maxHeight: 400,
+      );
+      if (picked == null) return;
+      final bytes = await picked.readAsBytes();
+      final url = await StorageService().uploadCoverImageBytes(
+        bytes: bytes,
+        uid: _myUid,
+      );
+      await _saveCover(url);
+    } catch (e) {
+      _toast(e.toString().replaceFirst('Exception: ', ''));
+    }
+  }
+
+  Future<void> _saveCover(String url) async {
+    setState(() => _busy = true);
+    final err = await _authService.updateProfile(uid: _myUid, coverUrl: url);
+    if (mounted) setState(() => _busy = false);
+    _toast(err ?? (url.isEmpty ? 'ลบรูปปกแล้ว' : 'เปลี่ยนรูปปกแล้ว'));
+  }
+
   Future<void> _editProfile(String name, String bio, String photoUrl) async {
     final saved = await showDialog<bool>(
       context: context,
@@ -85,9 +139,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
     );
     if (saved == true) {
-      invalidateAuthorName(
-        _myUid,
-      ); // ให้ชื่อใหม่แสดงในฟีด/คอมเมนต์ที่โหลดครั้งถัดไป
+      invalidateAuthorName(_myUid); // ให้ชื่อใหม่แสดงในฟีด/คอมเมนต์ที่โหลดครั้งถัดไป
       _toast('บันทึกโปรไฟล์แล้ว');
     }
   }
@@ -138,18 +190,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   static const _pageBg = Color(0xFFF0F2F5);
   static const _btnGrey = Color(0xFFE4E6EB);
   static const _months = [
-    'ม.ค.',
-    'ก.พ.',
-    'มี.ค.',
-    'เม.ย.',
-    'พ.ค.',
-    'มิ.ย.',
-    'ก.ค.',
-    'ส.ค.',
-    'ก.ย.',
-    'ต.ค.',
-    'พ.ย.',
-    'ธ.ค.',
+    'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
+    'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.',
   ];
 
   Future<void> _confirmUnfollow(String name) async {
@@ -212,10 +254,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
         SizedBox(
           width: 52,
           child: FilledButton(
-            style: _btnStyle(
-              bg: _btnGrey,
-              fg: Colors.black87,
-            ).copyWith(padding: const WidgetStatePropertyAll(EdgeInsets.zero)),
+            style: _btnStyle(bg: _btnGrey, fg: Colors.black87).copyWith(
+              padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+            ),
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute(
@@ -256,7 +297,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _cover(String name, String bio, String photoUrl) {
+  Widget _cover(String name, String bio, String photoUrl, String coverUrl) {
     // ปกไล่สี + รูปโปรไฟล์วงกลมใหญ่ซ้อนขอบล่างของปก (สูงรวม 150 + ครึ่งรูป)
     return SizedBox(
       height: 206,
@@ -275,8 +316,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   end: Alignment.bottomRight,
                 ),
               ),
+              // มีรูปปกก็แสดงทับพื้นไล่สี (ไม่มี/โหลดไม่ได้ = เห็นพื้นไล่สีเหมือนเดิม)
+              child: coverUrl.isEmpty
+                  ? null
+                  : Image(
+                      image: imageProviderFor(coverUrl) ?? const AssetImage(''),
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      height: 150,
+                      gaplessPlayback: true,
+                      semanticLabel: 'รูปปกโปรไฟล์',
+                      errorBuilder: (_, __, ___) => const SizedBox(),
+                    ),
             ),
           ),
+          if (_isMe)
+            Positioned(
+              top: 8,
+              right: 8,
+              child: FilledButton.tonalIcon(
+                onPressed: _busy ? null : () => _coverMenu(coverUrl),
+                icon: const Icon(Icons.photo_camera_outlined, size: 18),
+                label: const Text('เปลี่ยนปก'),
+              ),
+            ),
           Positioned(
             top: 94,
             left: 0,
@@ -339,10 +402,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           return const Padding(
             padding: EdgeInsets.all(24),
             child: Center(
-              child: Text(
-                'ยังไม่มีโพสต์',
-                style: TextStyle(color: Colors.black54),
-              ),
+              child: Text('ยังไม่มีโพสต์', style: TextStyle(color: Colors.black54)),
             ),
           );
         }
@@ -381,10 +441,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           );
         }
         if (!snap.hasData) {
-          return _page(
-            'โปรไฟล์',
-            const Center(child: CircularProgressIndicator()),
-          );
+          return _page('โปรไฟล์', const Center(child: CircularProgressIndicator()));
         }
         final data = snap.data!.data();
         if (data == null) {
@@ -394,6 +451,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         final bio = (data['bio'] ?? '') as String;
         final email = (data['email'] ?? '') as String;
         final photoUrl = (data['photoUrl'] ?? '') as String;
+        final coverUrl = (data['coverUrl'] ?? '') as String;
         final followers = List<String>.from(data['followers'] ?? []);
         final following = List<String>.from(data['following'] ?? []);
         final isFollowing = followers.contains(_myUid);
@@ -408,7 +466,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 color: Colors.white,
                 child: Column(
                   children: [
-                    _cover(name, bio, photoUrl),
+                    _cover(name, bio, photoUrl, coverUrl),
                     const SizedBox(height: 10),
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),

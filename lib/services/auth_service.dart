@@ -72,6 +72,7 @@ class AuthService {
     String? name,
     String? bio,
     String? photoUrl,
+    String? coverUrl, // null = ไม่เปลี่ยน, '' = ลบรูปปก
     bool? isPrivate,
   }) async {
     try {
@@ -79,6 +80,7 @@ class AuthService {
       if (name != null) data['name'] = name;
       if (bio != null) data['bio'] = bio;
       if (photoUrl != null) data['photoUrl'] = photoUrl;
+      if (coverUrl != null) data['coverUrl'] = coverUrl;
       if (isPrivate != null) data['isPrivate'] = isPrivate;
       if (data.isEmpty) return null;
 

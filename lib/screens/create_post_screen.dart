@@ -46,8 +46,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         final bytes = await picked.readAsBytes();
         setState(() {
           _selectedImageBytes = bytes;
-          _selectedVideoBytes =
-              null; // 1 โพสต์ = รูปหรือวิดีโออย่างใดอย่างหนึ่ง
+          _selectedVideoBytes = null; // 1 โพสต์ = รูปหรือวิดีโออย่างใดอย่างหนึ่ง
           _selectedVideoName = null;
         });
       }
@@ -197,6 +196,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                     top: 4,
                     right: 4,
                     child: IconButton(
+                      tooltip: 'ลบรูปที่เลือก',
                       icon: const Icon(Icons.close, color: Colors.white),
                       style: IconButton.styleFrom(
                         backgroundColor: Colors.black45,
@@ -221,6 +221,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                     '${(_selectedVideoBytes!.length / (1024 * 1024)).toStringAsFixed(1)} MB',
                   ),
                   trailing: IconButton(
+                    tooltip: 'ลบวิดีโอที่เลือก',
                     icon: const Icon(Icons.close),
                     onPressed: _submitting
                         ? null

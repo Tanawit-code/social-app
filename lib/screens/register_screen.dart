@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
+import '../utils/validators.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -18,10 +19,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _obscureConfirm = true;
   bool _loading = false;
 
-  static final _emailRegex = RegExp(r'^[\w.+-]+@[\w-]+\.[\w.-]+$');
-  static final _digitRegex = RegExp(r'[0-9]');
-  static final _specialRegex = RegExp(r'[^A-Za-z0-9\s]');
-
   @override
   void dispose() {
     _nameController.dispose();
@@ -37,32 +34,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   /// ตรวจความถูกต้องของฟอร์มฝั่ง client ก่อนยิงไป Firebase
   /// คืนค่า error message ถ้าไม่ผ่าน หรือ null ถ้าผ่านหมด
-  String? _validate() {
-    final name = _nameController.text.trim();
-    final email = _emailController.text.trim();
-    final password = _passwordController.text;
-    final confirm = _confirmController.text;
-
-    if (name.isEmpty || email.isEmpty || password.isEmpty) {
-      return 'กรุณากรอกข้อมูลให้ครบ';
-    }
-    if (!_emailRegex.hasMatch(email)) {
-      return 'รูปแบบอีเมลไม่ถูกต้อง';
-    }
-    if (password.length < 8) {
-      return 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร';
-    }
-    if (!_digitRegex.hasMatch(password)) {
-      return 'รหัสผ่านต้องมีตัวเลขอย่างน้อย 1 ตัว';
-    }
-    if (!_specialRegex.hasMatch(password)) {
-      return 'รหัสผ่านต้องมีอักขระพิเศษอย่างน้อย 1 ตัว (เช่น !@#\$%)';
-    }
-    if (password != confirm) {
-      return 'รหัสผ่านไม่ตรงกัน';
-    }
-    return null;
-  }
+  String? _validate() => validateRegisterForm(
+    name: _nameController.text,
+    email: _emailController.text,
+    password: _passwordController.text,
+    confirm: _confirmController.text,
+  );
 
   Future<void> _handleRegister() async {
     final validationError = _validate();

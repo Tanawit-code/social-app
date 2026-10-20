@@ -7,8 +7,8 @@ import 'package:http/http.dart' as http;
 /// เหตุผล: เอกสาร Firestore ใหญ่ได้ไม่เกิน 1 MiB จึงเก็บไฟล์วิดีโอตรงๆ ไม่ได้
 class VideoUploadService {
   // ★ ใส่ค่าของตัวเองจากหน้า Cloudinary (ดูวิธีในคำอธิบาย)
-  static const cloudName = 'oyfgbne4';
-  static const uploadPreset = 'social_app';
+  static const cloudName = 'YOUR_CLOUD_NAME';
+  static const uploadPreset = 'YOUR_UNSIGNED_PRESET';
 
   static const maxBytes = 30 * 1024 * 1024; // 30 MB
   static const maxSeconds = 60;
@@ -18,15 +18,13 @@ class VideoUploadService {
     required Uint8List bytes,
     required String filename,
   }) async {
-    if (cloudName.startsWith('YOUR_') || uploadPreset.startsWith('YOUR_')) {
-      throw Exception(
-        'ยังไม่ได้ตั้งค่า Cloudinary ใน video_upload_service.dart',
-      );
-    }
     if (bytes.length > maxBytes) {
       throw Exception(
         'วิดีโอใหญ่เกินไป (${bytes.length ~/ (1024 * 1024)} MB, ไม่เกิน ${maxBytes ~/ (1024 * 1024)} MB)',
       );
+    }
+    if (cloudName.startsWith('YOUR_') || uploadPreset.startsWith('YOUR_')) {
+      throw Exception('ยังไม่ได้ตั้งค่า Cloudinary ใน video_upload_service.dart');
     }
 
     final uri = Uri.parse(
@@ -43,8 +41,7 @@ class VideoUploadService {
     final data = jsonDecode(res.body) as Map<String, dynamic>;
 
     if (res.statusCode != 200) {
-      final msg =
-          (data['error'] as Map?)?['message'] ?? 'HTTP ${res.statusCode}';
+      final msg = (data['error'] as Map?)?['message'] ?? 'HTTP ${res.statusCode}';
       throw Exception('อัปโหลดวิดีโอไม่สำเร็จ: $msg');
     }
     return data['secure_url'] as String;

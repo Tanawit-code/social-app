@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:share_plus/share_plus.dart';
 import '../models/post_model.dart';
 import '../services/auth_service.dart';
 import '../services/post_service.dart';
 import 'create_post_screen.dart';
 import 'profile_screen.dart';
 import '../widgets/user_avatar.dart';
-import '../utils/image_data.dart';
 import '../widgets/post_media.dart';
 
 class HomeFeedScreen extends StatefulWidget {
@@ -39,7 +39,11 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
         ),
         // ค้นหา/แชท/แจ้งเตือน/โปรไฟล์ ย้ายไปอยู่ bottom bar (MainShell) แล้ว
         actions: [
-          IconButton(icon: const Icon(Icons.logout), onPressed: _logout),
+          IconButton(
+            tooltip: 'ออกจากระบบ',
+            icon: const Icon(Icons.logout),
+            onPressed: _logout,
+          ),
         ],
       ),
       body: StreamBuilder<List<Post>>(
@@ -303,6 +307,25 @@ class _PostCardState extends State<_PostCard> {
     }
   }
 
+  Future<void> _sharePost() async {
+    final parts = <String>[
+      if (post.content.trim().isNotEmpty) post.content.trim(),
+      if (post.mediaUrl != null && post.mediaUrl!.trim().isNotEmpty)
+        post.mediaUrl!.trim(),
+      'โพสต์นี้แชร์จาก Social (รหัสโพสต์: ${post.id})',
+    ];
+    try {
+      await SharePlus.instance.share(
+        ShareParams(text: parts.join('\n\n'), title: 'แชร์โพสต์'),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('แชร์โพสต์ไม่สำเร็จ: $e')),
+      );
+    }
+  }
+
   void _openProfile() {
     Navigator.push(
       context,
@@ -543,7 +566,7 @@ class _PostCardState extends State<_PostCard> {
                             icon: Icons.share_outlined,
                             label: 'Share',
                             active: false,
-                            onTap: () {},
+                            onTap: _sharePost,
                           ),
                         ),
                       ],
@@ -668,7 +691,10 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            UserAvatar(uid: data['authorId'] ?? '', radius: 16),
+                            UserAvatar(
+                              uid: data['authorId'] ?? '',
+                              radius: 16,
+                            ),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Container(
