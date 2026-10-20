@@ -28,10 +28,15 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
-
+  flutter_launcher_icons: ^0.14.1
 
   flutter_lints: ^6.0.0
 
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon.png"
+  
 dependency_overrides:
   # Avoid the native-assets hook in 2.5+, which breaks with SDK paths containing spaces.
   path_provider_foundation: 2.4.1
