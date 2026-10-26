@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/auth_service.dart';
 import '../services/chat_service.dart';
 import '../services/storage_service.dart';
+import '../services/notification_service.dart';
 import '../utils/image_data.dart';
 import '../widgets/user_avatar.dart';
 import 'home_feed_screen.dart' show AuthorName;
@@ -32,10 +34,20 @@ class _ChatScreenState extends State<ChatScreen> {
       _chat.messages(_myUid, widget.peerUid);
   bool _sending = false;
   bool _hasText = false;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _readSubscription;
 
   @override
   void initState() {
     super.initState();
+    final id = _chat.chatId(_myUid, widget.peerUid);
+    _readSubscription = FirebaseFirestore.instance
+        .collection('chats')
+        .doc(id)
+        .collection('messages')
+        .snapshots()
+        .listen((_) {
+          NotificationService().markChatRead(_myUid, id).catchError((_) {});
+        });
     _controller.addListener(() {
       final has = _controller.text.trim().isNotEmpty;
       if (has != _hasText) setState(() => _hasText = has);
@@ -44,6 +56,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    _readSubscription?.cancel();
     _controller.dispose();
     super.dispose();
   }

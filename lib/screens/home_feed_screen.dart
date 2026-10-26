@@ -8,6 +8,8 @@ import 'create_post_screen.dart';
 import 'profile_screen.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/post_media.dart';
+import 'pages_screen.dart';
+import '../widgets/suggested_people.dart';
 
 class HomeFeedScreen extends StatefulWidget {
   const HomeFeedScreen({super.key});
@@ -40,6 +42,14 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
         // ค้นหา/แชท/แจ้งเตือน/โปรไฟล์ ย้ายไปอยู่ bottom bar (MainShell) แล้ว
         actions: [
           IconButton(
+            tooltip: 'เพจ',
+            icon: const Icon(Icons.flag_outlined),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const PagesScreen()),
+            ),
+          ),
+          IconButton(
             tooltip: 'ออกจากระบบ',
             icon: const Icon(Icons.logout),
             onPressed: _logout,
@@ -61,6 +71,8 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
             children: [
               _ComposerBar(uid: uid),
               const SizedBox(height: 10),
+              SuggestedPeople(uid: uid),
+              const SizedBox(height: 10),
               if (posts.isEmpty)
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 40),
@@ -73,7 +85,7 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
                   (p) => Padding(
                     key: ValueKey(p.id),
                     padding: const EdgeInsets.only(bottom: 10),
-                    child: _PostCard(
+                    child: PostCard(
                       post: p,
                       currentUid: uid,
                       postService: _postService,
@@ -260,22 +272,40 @@ class _AuthorNameState extends State<AuthorName> {
   }
 }
 
-class _PostCard extends StatefulWidget {
+class _ReactionOption {
+  final String type;
+  final String emoji;
+  final String label;
+  const _ReactionOption(this.type, this.emoji, this.label);
+}
+
+const _reactionOptions = [
+  _ReactionOption('like', '\u{1F44D}', 'Like'),
+  _ReactionOption('love', '\u2764\uFE0F', 'Love'),
+  _ReactionOption('care', '\u{1F917}', 'Care'),
+  _ReactionOption('haha', '\u{1F602}', 'Haha'),
+  _ReactionOption('wow', '\u{1F62E}', 'Wow'),
+  _ReactionOption('sad', '\u{1F622}', 'Sad'),
+  _ReactionOption('angry', '\u{1F621}', 'Angry'),
+];
+
+class PostCard extends StatefulWidget {
   final Post post;
   final String currentUid;
   final PostService postService;
 
-  const _PostCard({
+  const PostCard({
     required this.post,
     required this.currentUid,
     required this.postService,
+    super.key,
   });
 
   @override
-  State<_PostCard> createState() => _PostCardState();
+  State<PostCard> createState() => _PostCardState();
 }
 
-class _PostCardState extends State<_PostCard> {
+class _PostCardState extends State<PostCard> {
   bool _deleting = false;
 
   Post get post => widget.post;
@@ -292,6 +322,9 @@ class _PostCardState extends State<_PostCard> {
           .doc(currentUid)
           .snapshots();
 
+  Stream<QuerySnapshot<Map<String, dynamic>>> get _reactionsStream =>
+      postService.reactionsStream(post.id);
+
   Future<void> _react(String type) async {
     try {
       await postService.setReaction(
@@ -305,6 +338,41 @@ class _PostCardState extends State<_PostCard> {
         context,
       ).showSnackBar(SnackBar(content: Text('ทำรายการไม่สำเร็จ: $e')));
     }
+  }
+
+  void _openReactionPicker() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 16, 12, 18),
+          child: Wrap(
+            alignment: WrapAlignment.spaceEvenly,
+            spacing: 8,
+            runSpacing: 8,
+            children: _reactionOptions.map((option) => InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                _react(option.type);
+              },
+              child: SizedBox(
+                width: 58,
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Text(option.emoji, style: const TextStyle(fontSize: 32)),
+                  const SizedBox(height: 4),
+                  Text(option.label, style: const TextStyle(fontSize: 10)),
+                ]),
+              ),
+            )).toList(),
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _sharePost() async {
@@ -530,19 +598,44 @@ class _PostCardState extends State<_PostCard> {
                       ],
                     ),
                   ),
+                StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream: _reactionsStream,
+                  builder: (context, reactionSnap) {
+                    if (!reactionSnap.hasData) return const SizedBox.shrink();
+                    final counts = <String, int>{};
+                    for (final doc in reactionSnap.data!.docs) {
+                      final type = doc.data()['type'] as String?;
+                      if (type != null && type != 'like' && type != 'dislike') {
+                        counts[type] = (counts[type] ?? 0) + 1;
+                      }
+                    }
+                    final options = _reactionOptions.where((option) => option.type != 'like' && (counts[option.type] ?? 0) > 0).toList();
+                    if (options.isEmpty) return const SizedBox.shrink();
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Wrap(spacing: 8, children: options.map((option) => Text('${option.emoji} ${counts[option.type]}', style: const TextStyle(fontSize: 12))).toList()),
+                    );
+                  },
+                ),
                 const Divider(height: 1),
                 StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
                   stream: _myReactionStream,
                   builder: (context, snap) {
                     final myType = snap.data?.data()?['type'] as String?;
+                    _ReactionOption? selectedReaction;
+                    for (final option in _reactionOptions) {
+                      if (option.type == myType) selectedReaction = option;
+                    }
                     return Row(
                       children: [
                         Expanded(
                           child: _actionButton(
                             icon: Icons.thumb_up,
-                            label: 'Like',
-                            active: myType == 'like',
+                            label: selectedReaction?.label ?? 'Like',
+                            emoji: selectedReaction?.type == 'like' ? null : selectedReaction?.emoji,
+                            active: myType != null && myType != 'dislike',
                             onTap: () => _react('like'),
+                            onLongPress: _openReactionPicker,
                           ),
                         ),
                         Expanded(
@@ -586,16 +679,22 @@ class _PostCardState extends State<_PostCard> {
     required String label,
     required bool active,
     required VoidCallback onTap,
+    String? emoji,
+    VoidCallback? onLongPress,
   }) {
     final color = active ? Colors.blue : Colors.black54;
     return InkWell(
       onTap: onTap,
+      onLongPress: onLongPress,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 18, color: color),
+            if (emoji != null)
+              Text(emoji, style: const TextStyle(fontSize: 18))
+            else
+              Icon(icon, size: 18, color: color),
             const SizedBox(width: 6),
             Text(
               label,

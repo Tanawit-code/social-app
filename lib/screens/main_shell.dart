@@ -57,9 +57,6 @@ class _MainShellState extends State<MainShell> {
     if (i == _notiIndex || _index == _notiIndex) {
       NotificationService().markRead(_uid, messages: false);
     }
-    if (i == _chatIndex || _index == _chatIndex) {
-      NotificationService().markRead(_uid, messages: true);
-    }
     setState(() {
       _index = i;
       _visited.add(i);

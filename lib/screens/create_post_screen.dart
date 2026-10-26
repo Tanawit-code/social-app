@@ -7,7 +7,8 @@ import '../services/storage_service.dart';
 import '../services/video_upload_service.dart';
 
 class CreatePostScreen extends StatefulWidget {
-  const CreatePostScreen({super.key});
+  final String? pageId;
+  const CreatePostScreen({this.pageId, super.key});
 
   @override
   State<CreatePostScreen> createState() => _CreatePostScreenState();
@@ -126,6 +127,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         content: content,
         mediaUrl: mediaUrl,
         mediaType: mediaType,
+        pageId: widget.pageId,
       );
 
       if (!mounted) return;
@@ -144,7 +146,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('สร้างโพสต์'),
+        title: Text(widget.pageId == null ? 'สร้างโพสต์' : 'โพสต์ลงเพจ'),
         actions: [
           TextButton(
             onPressed: _submitting ? null : _submit,

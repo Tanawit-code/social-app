@@ -12,13 +12,22 @@ class PostService {
     required String content,
     String? mediaUrl,
     String? mediaType,
+    String? pageId,
   }) async {
+    if (pageId != null) {
+      final page = await FirebaseFirestore.instance.collection('pages').doc(pageId).get();
+      final members = List<String>.from(page.data()?['memberIds'] ?? const []);
+      if (!page.exists || !members.contains(authorId)) {
+        throw Exception('ต้องเป็นสมาชิกเพจก่อนจึงจะโพสต์ได้');
+      }
+    }
     final post = Post(
       id: '',
       authorId: authorId,
       content: content,
       mediaUrl: mediaUrl,
       mediaType: mediaType,
+      pageId: pageId,
     );
     final doc = await _posts.add(post.toMap());
     return doc.id;
@@ -28,9 +37,13 @@ class PostService {
   Stream<List<Post>> feedStream({int limit = 30}) {
     return _posts
         .orderBy('createdAt', descending: true)
-        .limit(limit)
+        .limit(limit * 10)
         .snapshots()
-        .map((snap) => snap.docs.map((d) => Post.fromDoc(d)).toList());
+        .map((snap) => snap.docs
+            .map((d) => Post.fromDoc(d))
+            .where((post) => post.pageId == null)
+            .take(limit)
+            .toList());
   }
 
   /// แก้ไขโพสต์ (เฉพาะเจ้าของ - เช็คสิทธิ์ที่ Firestore rules ด้วย)
@@ -44,6 +57,9 @@ class PostService {
   }
 
   /// like / dislike / emoji reaction (เก็บ 1 reaction ต่อ 1 user ต่อโพสต์)
+  Stream<QuerySnapshot<Map<String, dynamic>>> reactionsStream(String postId) =>
+      _posts.doc(postId).collection('reactions').snapshots();
+
   Future<void> setReaction({
     required String postId,
     required String uid,

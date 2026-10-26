@@ -14,6 +14,9 @@ class NotificationService {
     required String type,
     String? postId,
     String? text,
+    String? groupId,
+    String? groupName,
+    String? chatId,
   }) async {
     if (toUid.isEmpty || toUid == fromUid) return; // ไม่แจ้งเตือนตัวเอง
     await _col(toUid).add({
@@ -21,6 +24,9 @@ class NotificationService {
       'type': type,
       'postId': postId,
       'text': text,
+      'groupId': groupId,
+      'groupName': groupName,
+      'chatId': chatId,
       'isRead': false,
       'createdAt': FieldValue.serverTimestamp(),
     });
@@ -45,6 +51,44 @@ class NotificationService {
               .where((d) => (d.data()['type'] == 'message') == messages)
               .length,
         );
+  }
+
+  Stream<int> groupUnreadCount(String uid, String groupId) {
+    return _col(uid)
+        .where('groupId', isEqualTo: groupId)
+        .snapshots()
+        .map((snap) => snap.docs.where((doc) => doc.data()['isRead'] != true).length);
+  }
+
+  Stream<int> chatUnreadCount(String uid, String chatId) {
+    return _col(uid)
+        .where('chatId', isEqualTo: chatId)
+        .snapshots()
+        .map((snap) => snap.docs.where((doc) => doc.data()['isRead'] != true).length);
+  }
+
+  Future<void> markGroupRead(String uid, String groupId) async {
+    final snap = await _col(uid).where('groupId', isEqualTo: groupId).get();
+    final unread = snap.docs.where((doc) => doc.data()['isRead'] != true).toList();
+    for (var i = 0; i < unread.length; i += 450) {
+      final batch = _db.batch();
+      for (final doc in unread.skip(i).take(450)) {
+        batch.update(doc.reference, {'isRead': true});
+      }
+      await batch.commit();
+    }
+  }
+
+  Future<void> markChatRead(String uid, String chatId) async {
+    final snap = await _col(uid).where('chatId', isEqualTo: chatId).get();
+    final unread = snap.docs.where((doc) => doc.data()['isRead'] != true).toList();
+    for (var i = 0; i < unread.length; i += 450) {
+      final batch = _db.batch();
+      for (final doc in unread.skip(i).take(450)) {
+        batch.update(doc.reference, {'isRead': true});
+      }
+      await batch.commit();
+    }
   }
 
   /// ทำเครื่องหมายอ่านแล้วเฉพาะกลุ่ม (ข้อความแชท หรือ อย่างอื่น)

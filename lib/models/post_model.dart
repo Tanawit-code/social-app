@@ -6,6 +6,7 @@ class Post {
   final String content;
   final String? mediaUrl;
   final String? mediaType; // 'image' | 'video' | null
+  final String? pageId;
   final Timestamp? createdAt;
   final int likeCount;
   final int dislikeCount;
@@ -16,6 +17,7 @@ class Post {
     required this.content,
     this.mediaUrl,
     this.mediaType,
+    this.pageId,
     this.createdAt,
     this.likeCount = 0,
     this.dislikeCount = 0,
@@ -29,6 +31,7 @@ class Post {
       content: data['content'] ?? '',
       mediaUrl: data['mediaUrl'],
       mediaType: data['mediaType'],
+      pageId: data['pageId'] as String?,
       createdAt: data['createdAt'],
       likeCount: data['likeCount'] ?? 0,
       dislikeCount: data['dislikeCount'] ?? 0,
@@ -41,6 +44,7 @@ class Post {
       'content': content,
       'mediaUrl': mediaUrl,
       'mediaType': mediaType,
+      'pageId': pageId,
       'createdAt': FieldValue.serverTimestamp(),
       'likeCount': likeCount,
       'dislikeCount': dislikeCount,

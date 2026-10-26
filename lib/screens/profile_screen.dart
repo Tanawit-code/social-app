@@ -283,16 +283,58 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _countText(int n, String label) {
-    return Text.rich(
-      TextSpan(
-        children: [
-          TextSpan(
-            text: '$n',
-            style: const TextStyle(fontWeight: FontWeight.bold),
-          ),
-          TextSpan(text: ' $label'),
-        ],
+  Widget _countText(int n, String label, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(6),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+        child: Text.rich(
+          TextSpan(children: [
+            TextSpan(text: '$n', style: const TextStyle(fontWeight: FontWeight.bold)),
+            TextSpan(text: ' $label  ›'),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  void _showFollowList(String title, List<String> userIds) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: SizedBox(
+          height: MediaQuery.of(sheetContext).size.height * 0.7,
+          child: Column(children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 16, 8, 12),
+              child: Row(children: [
+                Expanded(child: Text('$title (${userIds.length})', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
+                IconButton(tooltip: 'ปิด', onPressed: () => Navigator.pop(sheetContext), icon: const Icon(Icons.close)),
+              ]),
+            ),
+            const Divider(height: 1),
+            if (userIds.isEmpty)
+              Expanded(child: Center(child: Text('ยังไม่มี$title')))
+            else
+              Expanded(child: ListView.builder(
+                itemCount: userIds.length,
+                itemBuilder: (context, index) {
+                  final uid = userIds[index];
+                  return ListTile(
+                    leading: UserAvatar(uid: uid),
+                    title: AuthorName(uid: uid),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      Navigator.push(this.context, MaterialPageRoute(builder: (_) => ProfileScreen(uid: uid)));
+                    },
+                  );
+                },
+              )),
+          ]),
+        ),
       ),
     );
   }
@@ -494,11 +536,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           const SizedBox(height: 12),
                           _infoRow(
                             Icons.people_alt_outlined,
-                            _countText(followers.length, 'ผู้ติดตาม'),
+                            _countText(followers.length, 'ผู้ติดตาม', () => _showFollowList('ผู้ติดตาม', followers)),
                           ),
                           _infoRow(
                             Icons.person_add_alt_outlined,
-                            _countText(following.length, 'กำลังติดตาม'),
+                            _countText(following.length, 'กำลังติดตาม', () => _showFollowList('กำลังติดตาม', following)),
                           ),
                           if (_isMe && email.isNotEmpty)
                             _infoRow(Icons.mail_outline, Text(email)),
