@@ -11,8 +11,23 @@ class ChatService {
     return ids.join('_');
   }
 
-  Stream<QuerySnapshot<Map<String, dynamic>>> messages(String me, String peer) {
-    return _db
+  Future<void> ensureDirectChat(String me, String peer) async {
+    if (me.isEmpty || peer.isEmpty || me == peer) return;
+    final ref = _db.collection('chats').doc(chatId(me, peer));
+    final snap = await ref.get();
+    if (snap.exists) return;
+    final participants = [me, peer]..sort();
+    await ref.set({
+      'type': 'direct',
+      'participants': participants,
+      'lastMessage': '',
+      'lastAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> messages(String me, String peer) async* {
+    await ensureDirectChat(me, peer);
+    yield* _db
         .collection('chats')
         .doc(chatId(me, peer))
         .collection('messages')

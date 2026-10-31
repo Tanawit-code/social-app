@@ -15,7 +15,7 @@ class SuggestedPeople extends StatelessWidget {
       if (!meSnap.hasData) return const SizedBox.shrink();
       final following = List<String>.from(meSnap.data!.data()?['following'] ?? const []);
       return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: FirebaseFirestore.instance.collection('users').limit(200).snapshots(),
+        stream: FirebaseFirestore.instance.collection('users').where('isPrivate', isEqualTo: false).limit(200).snapshots(),
         builder: (context, usersSnap) {
           if (!usersSnap.hasData) return const SizedBox.shrink();
           final suggestions = usersSnap.data!.docs.where((doc) => doc.id != uid && !following.contains(doc.id)).toList();

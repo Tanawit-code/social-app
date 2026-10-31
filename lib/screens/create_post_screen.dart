@@ -27,6 +27,8 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   Uint8List? _selectedVideoBytes;
   String? _selectedVideoName;
   bool _submitting = false;
+  bool _shareAsReel = false;
+  String _audience = 'public';
   String? _errorText;
 
   @override
@@ -47,7 +49,9 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         final bytes = await picked.readAsBytes();
         setState(() {
           _selectedImageBytes = bytes;
-          _selectedVideoBytes = null; // 1 โพสต์ = รูปหรือวิดีโออย่างใดอย่างหนึ่ง
+          _shareAsReel = false;
+          _selectedVideoBytes =
+              null; // 1 โพสต์ = รูปหรือวิดีโออย่างใดอย่างหนึ่ง
           _selectedVideoName = null;
         });
       }
@@ -128,6 +132,8 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         mediaUrl: mediaUrl,
         mediaType: mediaType,
         pageId: widget.pageId,
+        audience: widget.pageId == null ? _audience : 'public',
+        isReel: _shareAsReel && mediaType == 'video',
       );
 
       if (!mounted) return;
@@ -181,6 +187,36 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                 border: OutlineInputBorder(),
               ),
             ),
+            if (widget.pageId == null) ...[
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: _audience,
+                decoration: const InputDecoration(
+                  labelText: 'ใครเห็นโพสต์นี้ได้บ้าง',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.people_outline),
+                ),
+                items: const [
+                  DropdownMenuItem(
+                    value: 'public',
+                    child: Text('สาธารณะ — ทุกคนเห็นได้'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'friends',
+                    child: Text('เพื่อน — คนที่ตอบรับคำขอแล้ว'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'private',
+                    child: Text('ส่วนตัว — เฉพาะฉัน'),
+                  ),
+                ],
+                onChanged: _submitting
+                    ? null
+                    : (value) {
+                        if (value != null) setState(() => _audience = value);
+                      },
+              ),
+            ],
             const SizedBox(height: 12),
             if (_selectedImageBytes != null)
               Stack(
@@ -233,6 +269,16 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                           }),
                   ),
                 ),
+              ),
+            if (_selectedVideoBytes != null && widget.pageId == null)
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                value: _shareAsReel,
+                onChanged: _submitting
+                    ? null
+                    : (value) => setState(() => _shareAsReel = value),
+                title: const Text('แชร์เป็น Reel'),
+                subtitle: const Text('วิดีโอนี้จะแสดงในฟีด Reels ด้วย'),
               ),
             if (_submitting && _selectedVideoBytes != null)
               const Padding(

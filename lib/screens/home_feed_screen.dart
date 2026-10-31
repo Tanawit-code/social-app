@@ -10,6 +10,9 @@ import '../widgets/user_avatar.dart';
 import '../widgets/post_media.dart';
 import 'pages_screen.dart';
 import '../widgets/suggested_people.dart';
+import '../widgets/story_strip.dart';
+import 'reels_screen.dart';
+import 'communities_screen.dart';
 
 class HomeFeedScreen extends StatefulWidget {
   const HomeFeedScreen({super.key});
@@ -42,6 +45,14 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
         // ค้นหา/แชท/แจ้งเตือน/โปรไฟล์ ย้ายไปอยู่ bottom bar (MainShell) แล้ว
         actions: [
           IconButton(
+            tooltip: 'ชุมชน',
+            icon: const Icon(Icons.groups_2_outlined),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const CommunitiesScreen()),
+            ),
+          ),
+          IconButton(
             tooltip: 'เพจ',
             icon: const Icon(Icons.flag_outlined),
             onPressed: () => Navigator.push(
@@ -57,7 +68,7 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
         ],
       ),
       body: StreamBuilder<List<Post>>(
-        stream: _postService.feedStream(),
+        stream: _postService.feedStream(viewerId: uid),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
             return _ErrorState(message: 'โหลดฟีดไม่สำเร็จ: ${snapshot.error}');
@@ -71,6 +82,19 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
             children: [
               _ComposerBar(uid: uid),
               const SizedBox(height: 10),
+              const StoryStrip(),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const ReelsScreen()),
+                  ),
+                  icon: const Icon(Icons.video_library_outlined),
+                  label: const Text('ดู Reels'),
+                ),
+              ),
               SuggestedPeople(uid: uid),
               const SizedBox(height: 10),
               if (posts.isEmpty)
@@ -160,6 +184,7 @@ class _ComposerBar extends StatelessWidget {
                   'รูปภาพ',
                   Colors.green,
                 ),
+                const StoryStrip(createOnly: true),
                 _quickAction(context, Icons.videocam, 'วิดีโอ', Colors.red),
               ],
             ),
@@ -354,21 +379,34 @@ class _PostCardState extends State<PostCard> {
             alignment: WrapAlignment.spaceEvenly,
             spacing: 8,
             runSpacing: 8,
-            children: _reactionOptions.map((option) => InkWell(
-              borderRadius: BorderRadius.circular(14),
-              onTap: () {
-                Navigator.pop(sheetContext);
-                _react(option.type);
-              },
-              child: SizedBox(
-                width: 58,
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  Text(option.emoji, style: const TextStyle(fontSize: 32)),
-                  const SizedBox(height: 4),
-                  Text(option.label, style: const TextStyle(fontSize: 10)),
-                ]),
-              ),
-            )).toList(),
+            children: _reactionOptions
+                .map(
+                  (option) => InkWell(
+                    borderRadius: BorderRadius.circular(14),
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      _react(option.type);
+                    },
+                    child: SizedBox(
+                      width: 58,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            option.emoji,
+                            style: const TextStyle(fontSize: 32),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            option.label,
+                            style: const TextStyle(fontSize: 10),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                )
+                .toList(),
           ),
         ),
       ),
@@ -376,6 +414,54 @@ class _PostCardState extends State<PostCard> {
   }
 
   Future<void> _sharePost() async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (post.sharedPostId == null)
+              ListTile(
+                leading: const Icon(Icons.repeat),
+                title: const Text('แชร์ลงฟีด'),
+                onTap: () => Navigator.pop(sheetContext, 'feed'),
+              ),
+            ListTile(
+              leading: const Icon(Icons.ios_share),
+              title: const Text('แชร์ผ่านแอปอื่น'),
+              onTap: () => Navigator.pop(sheetContext, 'external'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (choice == 'feed') {
+      final options = await showDialog<_ReshareOptions>(
+        context: context,
+        builder: (_) => const _ReshareDialog(),
+      );
+      if (options == null) return;
+      try {
+        await postService.sharePost(
+          authorId: currentUid,
+          original: post,
+          caption: options.caption,
+          audience: options.audience,
+        );
+        if (mounted)
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('แชร์โพสต์ลงฟีดแล้ว')));
+      } catch (error) {
+        if (mounted)
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('แชร์โพสต์ไม่สำเร็จ: $error')));
+      }
+      return;
+    }
+    if (choice != 'external') return;
     final parts = <String>[
       if (post.content.trim().isNotEmpty) post.content.trim(),
       if (post.mediaUrl != null && post.mediaUrl!.trim().isNotEmpty)
@@ -388,9 +474,9 @@ class _PostCardState extends State<PostCard> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('แชร์โพสต์ไม่สำเร็จ: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('แชร์โพสต์ไม่สำเร็จ: $e')));
     }
   }
 
@@ -410,6 +496,7 @@ class _PostCardState extends State<PostCard> {
       ),
       builder: (_) => _CommentsSheet(
         postId: post.id,
+        postOwnerId: post.authorId,
         currentUid: currentUid,
         postService: postService,
       ),
@@ -425,6 +512,61 @@ class _PostCardState extends State<PostCard> {
         postService: postService,
       ),
     );
+  }
+
+  Future<void> _hideFromFeed() async {
+    try {
+      await postService.hidePost(currentUid, post.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('ซ่อนโพสต์นี้จากฟีดแล้ว'),
+          action: SnackBarAction(
+            label: 'เลิกทำ',
+            onPressed: () => postService.unhidePost(currentUid, post.id),
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('ซ่อนโพสต์ไม่สำเร็จ: $error')));
+    }
+  }
+
+  Future<void> _muteAuthor() async {
+    try {
+      await postService.muteAuthor(currentUid, post.authorId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('ซ่อนโพสต์จากบัญชีนี้แล้ว'),
+          action: SnackBarAction(
+            label: 'เลิกทำ',
+            onPressed: () =>
+                postService.unmuteAuthor(currentUid, post.authorId),
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('ซ่อนบัญชีไม่สำเร็จ: $error')));
+    }
+  }
+
+  Future<void> _editPost() async {
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (_) => EditPostDialog(post: post, postService: postService),
+    );
+    if (saved == true && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('บันทึกการแก้ไขโพสต์แล้ว')));
+    }
   }
 
   Future<void> _confirmDelete() async {
@@ -510,42 +652,88 @@ class _PostCardState extends State<PostCard> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     else
-                      PopupMenuButton<String>(
-                        onSelected: (v) {
-                          if (v == 'report') _report();
-                          if (v == 'delete') _confirmDelete();
-                        },
-                        itemBuilder: (_) => [
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
                           if (_isOwner)
-                            const PopupMenuItem(
-                              value: 'delete',
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    Icons.delete_outline,
-                                    color: Colors.red,
-                                    size: 18,
-                                  ),
-                                  SizedBox(width: 8),
-                                  Text(
-                                    'ลบโพสต์',
-                                    style: TextStyle(color: Colors.red),
-                                  ),
-                                ],
-                              ),
-                            )
-                          else
-                            const PopupMenuItem(
-                              value: 'report',
-                              child: Text('รายงานโพสต์'),
+                            IconButton(
+                              tooltip: 'แก้ไขโพสต์',
+                              onPressed: _editPost,
+                              icon: const Icon(Icons.edit_outlined),
                             ),
+                          PopupMenuButton<String>(
+                            onSelected: (v) {
+                              if (v == 'report') _report();
+                              if (v == 'hide') _hideFromFeed();
+                              if (v == 'mute') _muteAuthor();
+                              if (v == 'delete') _confirmDelete();
+                            },
+                            itemBuilder: (_) => [
+                              if (_isOwner)
+                                const PopupMenuItem(
+                                  value: 'delete',
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.delete_outline,
+                                        color: Colors.red,
+                                        size: 18,
+                                      ),
+                                      SizedBox(width: 8),
+                                      Text(
+                                        'ลบโพสต์',
+                                        style: TextStyle(color: Colors.red),
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              else ...[
+                                const PopupMenuItem(
+                                  value: 'hide',
+                                  child: Text('ซ่อนโพสต์นี้'),
+                                ),
+                                const PopupMenuItem(
+                                  value: 'mute',
+                                  child: Text('ซ่อนโพสต์จากบัญชีนี้'),
+                                ),
+                                const PopupMenuItem(
+                                  value: 'report',
+                                  child: Text('รายงานโพสต์'),
+                                ),
+                              ],
+                            ],
+                          ),
                         ],
                       ),
                   ],
                 ),
                 const SizedBox(height: 8),
+                if (post.sharedPostId != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.repeat,
+                          size: 15,
+                          color: Colors.black54,
+                        ),
+                        const SizedBox(width: 5),
+                        const Text(
+                          'แชร์โพสต์จาก ',
+                          style: TextStyle(fontSize: 12, color: Colors.black54),
+                        ),
+                        if (post.sharedAuthorId != null)
+                          AuthorName(
+                            uid: post.sharedAuthorId!,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                      ],
+                    ),
+                  ),
                 if (post.content.isNotEmpty)
                   Text(post.content, style: const TextStyle(fontSize: 15)),
+                if (post.sharedPostId != null) _SharedPostPreview(post: post),
                 if (post.mediaUrl != null) ...[
                   const SizedBox(height: 8),
                   ClipRRect(
@@ -609,11 +797,27 @@ class _PostCardState extends State<PostCard> {
                         counts[type] = (counts[type] ?? 0) + 1;
                       }
                     }
-                    final options = _reactionOptions.where((option) => option.type != 'like' && (counts[option.type] ?? 0) > 0).toList();
+                    final options = _reactionOptions
+                        .where(
+                          (option) =>
+                              option.type != 'like' &&
+                              (counts[option.type] ?? 0) > 0,
+                        )
+                        .toList();
                     if (options.isEmpty) return const SizedBox.shrink();
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 6),
-                      child: Wrap(spacing: 8, children: options.map((option) => Text('${option.emoji} ${counts[option.type]}', style: const TextStyle(fontSize: 12))).toList()),
+                      child: Wrap(
+                        spacing: 8,
+                        children: options
+                            .map(
+                              (option) => Text(
+                                '${option.emoji} ${counts[option.type]}',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                            )
+                            .toList(),
+                      ),
                     );
                   },
                 ),
@@ -632,7 +836,9 @@ class _PostCardState extends State<PostCard> {
                           child: _actionButton(
                             icon: Icons.thumb_up,
                             label: selectedReaction?.label ?? 'Like',
-                            emoji: selectedReaction?.type == 'like' ? null : selectedReaction?.emoji,
+                            emoji: selectedReaction?.type == 'like'
+                                ? null
+                                : selectedReaction?.emoji,
                             active: myType != null && myType != 'dislike',
                             onTap: () => _react('like'),
                             onLongPress: _openReactionPicker,
@@ -711,13 +917,241 @@ class _PostCardState extends State<PostCard> {
   }
 }
 
+class EditPostDialog extends StatefulWidget {
+  final Post post;
+  final PostService postService;
+
+  const EditPostDialog({required this.post, required this.postService});
+
+  @override
+  State<EditPostDialog> createState() => _EditPostDialogState();
+}
+
+class _EditPostDialogState extends State<EditPostDialog> {
+  late final TextEditingController _contentController;
+  late String _audience;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _contentController = TextEditingController(text: widget.post.content);
+    _audience = widget.post.audience;
+  }
+
+  @override
+  void dispose() {
+    _contentController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    try {
+      await widget.postService.updatePost(
+        widget.post.id,
+        _contentController.text.trim(),
+        audience: widget.post.pageId == null ? _audience : null,
+      );
+      if (mounted) Navigator.pop(context, true);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('บันทึกโพสต์ไม่สำเร็จ: $error')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('แก้ไขโพสต์'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextField(
+              controller: _contentController,
+              autofocus: true,
+              minLines: 3,
+              maxLines: 7,
+              maxLength: 10000,
+              decoration: const InputDecoration(
+                labelText: 'ข้อความ',
+                border: OutlineInputBorder(),
+                alignLabelWithHint: true,
+              ),
+            ),
+            if (widget.post.pageId == null) ...[
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: _audience,
+                decoration: const InputDecoration(
+                  labelText: 'ใครเห็นโพสต์นี้ได้บ้าง',
+                  border: OutlineInputBorder(),
+                ),
+                items: const [
+                  DropdownMenuItem(
+                    value: 'public',
+                    child: Text('สาธารณะ — ทุกคนเห็นได้'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'friends',
+                    child: Text('เพื่อน — คนที่ตอบรับคำขอแล้ว'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'private',
+                    child: Text('ส่วนตัว — เฉพาะฉัน'),
+                  ),
+                ],
+                onChanged: _saving
+                    ? null
+                    : (value) {
+                        if (value != null) setState(() => _audience = value);
+                      },
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.pop(context, false),
+          child: const Text('ยกเลิก'),
+        ),
+        FilledButton(
+          onPressed: _saving ? null : _save,
+          child: _saving
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('บันทึก'),
+        ),
+      ],
+    );
+  }
+}
+
+class _ReshareOptions {
+  final String caption;
+  final String audience;
+  const _ReshareOptions(this.caption, this.audience);
+}
+
+class _ReshareDialog extends StatefulWidget {
+  const _ReshareDialog();
+
+  @override
+  State<_ReshareDialog> createState() => _ReshareDialogState();
+}
+
+class _ReshareDialogState extends State<_ReshareDialog> {
+  final _caption = TextEditingController();
+  String _audience = 'public';
+
+  @override
+  void dispose() {
+    _caption.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('แชร์ลงฟีด'),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        TextField(
+          controller: _caption,
+          maxLength: 10000,
+          minLines: 2,
+          maxLines: 5,
+          decoration: const InputDecoration(
+            hintText: 'เขียนข้อความประกอบโพสต์นี้',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 10),
+        DropdownButtonFormField<String>(
+          value: _audience,
+          decoration: const InputDecoration(
+            labelText: 'ผู้ชม',
+            border: OutlineInputBorder(),
+          ),
+          items: const [
+            DropdownMenuItem(value: 'public', child: Text('สาธารณะ')),
+            DropdownMenuItem(value: 'friends', child: Text('เพื่อน')),
+            DropdownMenuItem(value: 'private', child: Text('ส่วนตัว')),
+          ],
+          onChanged: (value) {
+            if (value != null) setState(() => _audience = value);
+          },
+        ),
+      ],
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('ยกเลิก'),
+      ),
+      FilledButton(
+        onPressed: () => Navigator.pop(
+          context,
+          _ReshareOptions(_caption.text.trim(), _audience),
+        ),
+        child: const Text('แชร์'),
+      ),
+    ],
+  );
+}
+
+class _SharedPostPreview extends StatelessWidget {
+  final Post post;
+  const _SharedPostPreview({required this.post});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    margin: const EdgeInsets.only(top: 8),
+    padding: const EdgeInsets.all(10),
+    decoration: BoxDecoration(
+      border: Border.all(color: const Color(0xFFE0E0E0)),
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if ((post.sharedContent ?? '').isNotEmpty)
+          Text(post.sharedContent!, style: const TextStyle(fontSize: 14)),
+        if (post.sharedMediaUrl != null) ...[
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: PostMedia(
+              url: post.sharedMediaUrl!,
+              type: post.sharedMediaType,
+              errorHeight: 150,
+            ),
+          ),
+        ],
+      ],
+    ),
+  );
+}
+
 class _CommentsSheet extends StatefulWidget {
   final String postId;
+  final String postOwnerId;
   final String currentUid;
   final PostService postService;
 
   const _CommentsSheet({
     required this.postId,
+    required this.postOwnerId,
     required this.currentUid,
     required this.postService,
   });
@@ -729,6 +1163,106 @@ class _CommentsSheet extends StatefulWidget {
 class _CommentsSheetState extends State<_CommentsSheet> {
   final _controller = TextEditingController();
   bool _sending = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _editComment(String commentId, String oldText) async {
+    final controller = TextEditingController(text: oldText);
+    final updated = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('แก้ไขความคิดเห็น'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 2000,
+          minLines: 2,
+          maxLines: 5,
+          decoration: const InputDecoration(border: OutlineInputBorder()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('ยกเลิก'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, controller.text.trim()),
+            child: const Text('บันทึก'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (updated == null || updated.isEmpty) return;
+    try {
+      await widget.postService.updateComment(
+        postId: widget.postId,
+        commentId: commentId,
+        text: updated,
+      );
+    } catch (error) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('แก้ไขความคิดเห็นไม่สำเร็จ: $error')),
+        );
+    }
+  }
+
+  Future<void> _deleteComment(String commentId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('ลบความคิดเห็นนี้?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('ยกเลิก'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('ลบ'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await widget.postService.deleteComment(
+        postId: widget.postId,
+        commentId: commentId,
+      );
+    } catch (error) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('ลบความคิดเห็นไม่สำเร็จ: $error')),
+        );
+    }
+  }
+
+  Future<void> _reportComment(String commentId) async {
+    try {
+      await widget.postService.reportTarget(
+        targetType: 'comment',
+        targetId: '${widget.postId}_$commentId',
+        reporterId: widget.currentUid,
+        reason: 'ความคิดเห็นไม่เหมาะสม',
+      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ส่งรายงานความคิดเห็นแล้ว')),
+        );
+    } catch (error) {
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('ส่งรายงานไม่สำเร็จ: $error')));
+    }
+  }
 
   Future<void> _send() async {
     final text = _controller.text.trim();
@@ -790,10 +1324,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            UserAvatar(
-                              uid: data['authorId'] ?? '',
-                              radius: 16,
-                            ),
+                            UserAvatar(uid: data['authorId'] ?? '', radius: 16),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Container(
@@ -824,6 +1355,40 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                                 ),
                               ),
                             ),
+                            if (data['authorId'] == widget.currentUid ||
+                                widget.postOwnerId == widget.currentUid)
+                              PopupMenuButton<String>(
+                                onSelected: (value) {
+                                  if (value == 'edit')
+                                    _editComment(
+                                      docs[i].id,
+                                      data['text'] ?? '',
+                                    );
+                                  if (value == 'delete')
+                                    _deleteComment(docs[i].id);
+                                },
+                                itemBuilder: (_) => [
+                                  if (data['authorId'] == widget.currentUid)
+                                    const PopupMenuItem(
+                                      value: 'edit',
+                                      child: Text('แก้ไข'),
+                                    ),
+                                  const PopupMenuItem(
+                                    value: 'delete',
+                                    child: Text('ลบ'),
+                                  ),
+                                ],
+                              )
+                            else
+                              PopupMenuButton<String>(
+                                onSelected: (_) => _reportComment(docs[i].id),
+                                itemBuilder: (_) => const [
+                                  PopupMenuItem(
+                                    value: 'report',
+                                    child: Text('รายงานความคิดเห็น'),
+                                  ),
+                                ],
+                              ),
                           ],
                         ),
                       );

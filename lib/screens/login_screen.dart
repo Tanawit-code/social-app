@@ -64,6 +64,19 @@ class _LoginScreenState extends State<LoginScreen> {
     Navigator.pushReplacementNamed(context, '/home');
   }
 
+  Future<void> _resetPassword() async {
+    final email = _emailController.text.trim();
+    if (!_emailRegex.hasMatch(email)) {
+      _showMessage('กรอกอีเมลที่ถูกต้องก่อนขอลิงก์ตั้งรหัสผ่านใหม่');
+      return;
+    }
+    setState(() => _loading = true);
+    final error = await _authService.sendPasswordReset(email);
+    if (!mounted) return;
+    setState(() => _loading = false);
+    _showMessage(error ?? 'ส่งลิงก์ตั้งรหัสผ่านใหม่แล้ว โปรดตรวจกล่องอีเมล');
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -111,6 +124,13 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
                 const SizedBox(height: 24),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: _loading ? null : _resetPassword,
+                    child: const Text('ลืมรหัสผ่าน?'),
+                  ),
+                ),
                 SizedBox(
                   width: double.infinity,
                   height: 48,

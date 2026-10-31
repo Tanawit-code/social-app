@@ -114,7 +114,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               const Divider(height: 1),
               Expanded(
                 child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream: FirebaseFirestore.instance.collection('users').limit(200).snapshots(),
+                  stream: FirebaseFirestore.instance.collection('users').where('isPrivate', isEqualTo: false).limit(200).snapshots(),
                   builder: (context, snap) {
                     if (snap.hasError) return Center(child: Text('โหลดสมาชิกไม่สำเร็จ: ${snap.error}'));
                     if (!snap.hasData) return const Center(child: CircularProgressIndicator());

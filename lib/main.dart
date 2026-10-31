@@ -10,6 +10,7 @@ import 'screens/profile_screen.dart';
 import 'screens/search_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/chat_list_screen.dart';
+import 'services/push_notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,6 +32,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: PushNotificationService.navigatorKey,
       title: 'Social Network App',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(

@@ -18,12 +18,14 @@ dependencies:
 
   firebase_core: ^3.6.0
   firebase_auth: ^5.3.1
+  firebase_messaging: ^15.2.10
   cloud_firestore: ^5.4.4
   firebase_storage: ^12.3.4
   image_picker: ^1.1.2
   video_player: ^2.9.2
   http: ^1.2.2
   share_plus: ^13.3.1
+  cloud_functions: ^5.6.2
 
 dev_dependencies:
   flutter_test:

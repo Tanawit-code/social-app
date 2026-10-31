@@ -27,7 +27,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
       final db = FirebaseFirestore.instance;
       final owner = await db.collection('users').doc(_uid).get();
       final following = List<String>.from(owner.data()?['following'] ?? const []);
-      final users = await db.collection('users').limit(200).get();
+      final users = await db.collection('users').where('isPrivate', isEqualTo: false).limit(200).get();
       _friends = users.docs.where((user) => user.id != _uid && following.contains(user.id) && List<String>.from(user.data()['following'] ?? const []).contains(_uid)).toList();
     } catch (e) { _friendError = 'โหลดรายชื่อเพื่อนไม่สำเร็จ: $e'; }
     finally { if (mounted) setState(() => _loadingFriends = false); }

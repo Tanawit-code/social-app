@@ -6,12 +6,17 @@ import '../models/post_model.dart';
 import '../services/auth_service.dart';
 import '../services/follow_service.dart';
 import '../services/storage_service.dart';
+import '../services/safety_service.dart';
+import '../services/post_service.dart';
+import '../services/friend_service.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/post_media.dart';
 import '../utils/image_data.dart';
 import 'chat_screen.dart';
+import 'privacy_settings_screen.dart';
+import 'account_settings_screen.dart';
 import 'home_feed_screen.dart'
-    show AuthorName, formatRelativeTime, invalidateAuthorName;
+    show AuthorName, EditPostDialog, formatRelativeTime, invalidateAuthorName;
 
 /// โปรไฟล์ — ไม่ส่ง uid = โปรไฟล์ของตัวเอง (แก้ไขได้)
 /// ส่ง uid ของคนอื่น = ดูโปรไฟล์ + ติดตาม/เลิกติดตาม + ส่งข้อความ
@@ -26,10 +31,17 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   final _authService = AuthService();
   final _followService = FollowService();
+  final _safetyService = SafetyService();
+  final _postService = PostService();
+  final _friendService = FriendService();
 
   late final String _myUid = _authService.currentUser?.uid ?? '';
   late final String _targetUid = widget.uid ?? _myUid;
   bool get _isMe => _targetUid == _myUid;
+  late Future<FriendRequestState> _friendStatus = _friendService.state(
+    _myUid,
+    _targetUid,
+  );
 
   late final Stream<DocumentSnapshot<Map<String, dynamic>>> _userStream =
       FirebaseFirestore.instance
@@ -51,7 +63,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
       });
 
   bool _busy = false;
+  bool _followRequestPending = false;
   bool _deleting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!_isMe) {
+      FirebaseFirestore.instance
+          .collection('users')
+          .doc(_targetUid)
+          .collection('followRequests')
+          .doc(_myUid)
+          .get()
+          .then((request) {
+            if (mounted && request.exists)
+              setState(() => _followRequestPending = true);
+          });
+    }
+  }
 
   void _toast(String msg) {
     if (!mounted) return;
@@ -64,7 +94,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (isFollowing) {
         await _followService.unfollow(me: _myUid, target: _targetUid);
       } else {
-        await _followService.follow(me: _myUid, target: _targetUid);
+        final sentRequest = await _followService.follow(
+          me: _myUid,
+          target: _targetUid,
+        );
+        if (mounted) {
+          setState(() => _followRequestPending = sentRequest);
+          _toast(sentRequest ? 'ส่งคำขอติดตามแล้ว' : 'ติดตามแล้ว');
+        }
       }
     } catch (e) {
       _toast('ทำรายการไม่สำเร็จ: $e');
@@ -127,7 +164,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _toast(err ?? (url.isEmpty ? 'ลบรูปปกแล้ว' : 'เปลี่ยนรูปปกแล้ว'));
   }
 
-  Future<void> _editProfile(String name, String bio, String photoUrl) async {
+  Future<void> _editProfile(
+    String name,
+    String bio,
+    String photoUrl, {
+    bool isPrivate = false,
+  }) async {
     final saved = await showDialog<bool>(
       context: context,
       builder: (_) => _EditProfileDialog(
@@ -135,13 +177,237 @@ class _ProfileScreenState extends State<ProfileScreen> {
         initialName: name,
         initialBio: bio,
         initialPhotoUrl: photoUrl,
+        initialIsPrivate: isPrivate,
         authService: _authService,
       ),
     );
     if (saved == true) {
-      invalidateAuthorName(_myUid); // ให้ชื่อใหม่แสดงในฟีด/คอมเมนต์ที่โหลดครั้งถัดไป
+      invalidateAuthorName(
+        _myUid,
+      ); // ให้ชื่อใหม่แสดงในฟีด/คอมเมนต์ที่โหลดครั้งถัดไป
       _toast('บันทึกโปรไฟล์แล้ว');
     }
+  }
+
+  Future<void> _editPost(Post post) async {
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (_) => EditPostDialog(post: post, postService: _postService),
+    );
+    if (saved == true) _toast('บันทึกการแก้ไขโพสต์แล้ว');
+  }
+
+  Future<void> _performFriendAction(FriendRequestState status) async {
+    setState(() => _busy = true);
+    try {
+      switch (status) {
+        case FriendRequestState.none:
+          await _friendService.send(from: _myUid, to: _targetUid);
+          _toast('ส่งคำขอเป็นเพื่อนแล้ว');
+          break;
+        case FriendRequestState.sent:
+          await _friendService.cancel(sender: _myUid, receiver: _targetUid);
+          _toast('ยกเลิกคำขอแล้ว');
+          break;
+        case FriendRequestState.incoming:
+          await _friendService.accept(receiver: _myUid, sender: _targetUid);
+          _toast('เพิ่มเป็นเพื่อนแล้ว');
+          break;
+        case FriendRequestState.friends:
+          await _friendService.unfriend(me: _myUid, other: _targetUid);
+          _toast('เลิกเป็นเพื่อนแล้ว');
+          break;
+      }
+      if (mounted)
+        setState(
+          () => _friendStatus = _friendService.state(_myUid, _targetUid),
+        );
+    } catch (error) {
+      _toast('ทำรายการไม่สำเร็จ: $error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Widget _friendButton() => FutureBuilder<FriendRequestState>(
+    future: _friendStatus,
+    builder: (context, snapshot) {
+      final status = snapshot.data ?? FriendRequestState.none;
+      final label = switch (status) {
+        FriendRequestState.friends => 'เพื่อนแล้ว',
+        FriendRequestState.sent => 'ยกเลิกคำขอเป็นเพื่อน',
+        FriendRequestState.incoming => 'ยอมรับคำขอเป็นเพื่อน',
+        FriendRequestState.none => 'เพิ่มเพื่อน',
+      };
+      final icon = switch (status) {
+        FriendRequestState.friends => Icons.people,
+        FriendRequestState.sent => Icons.person_remove_alt_1,
+        FriendRequestState.incoming => Icons.person_add_alt_1,
+        FriendRequestState.none => Icons.person_add_alt_1,
+      };
+      return SizedBox(
+        width: double.infinity,
+        child: OutlinedButton.icon(
+          onPressed: _busy || !snapshot.hasData
+              ? null
+              : () => _performFriendAction(status),
+          icon: Icon(icon, size: 18),
+          label: Text(label),
+        ),
+      );
+    },
+  );
+
+  void _manageFeedControls() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) =>
+          _FeedControlsSheet(uid: _myUid, postService: _postService),
+    );
+  }
+
+  Future<void> _reportProfile() async {
+    final reasons = [
+      'สแปม',
+      'เนื้อหาไม่เหมาะสม',
+      'คุกคามหรือแอบอ้าง',
+      'อื่น ๆ',
+    ];
+    String reason = reasons.first;
+    final sent = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('รายงานโปรไฟล์'),
+        content: StatefulBuilder(
+          builder: (ctx, setDialogState) => DropdownButtonFormField<String>(
+            value: reason,
+            items: reasons
+                .map((r) => DropdownMenuItem(value: r, child: Text(r)))
+                .toList(),
+            onChanged: (v) {
+              if (v != null) setDialogState(() => reason = v);
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('ยกเลิก'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('ส่งรายงาน'),
+          ),
+        ],
+      ),
+    );
+    if (sent != true) return;
+    try {
+      await _safetyService.report(
+        targetType: 'profile',
+        targetId: _targetUid,
+        reason: reason,
+      );
+      _toast('ส่งรายงานแล้ว ขอบคุณที่แจ้งให้ทราบ');
+    } catch (e) {
+      _toast('ส่งรายงานไม่สำเร็จ: $e');
+    }
+  }
+
+  Future<void> _blockProfile(String name) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('บล็อก ${name.isEmpty ? 'ผู้ใช้นี้' : name}?'),
+        content: const Text(
+          'โปรไฟล์และโพสต์จะถูกซ่อนจากกัน และจะป้องกันการส่งข้อความระหว่างบัญชีนี้กับคุณ',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('ยกเลิก'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('บล็อก'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await _safetyService.block(_targetUid);
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      _toast('บล็อกไม่สำเร็จ: $e');
+    }
+  }
+
+  void _showBlockedUsers() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: SizedBox(
+          height: MediaQuery.of(sheetContext).size.height * .65,
+          child: Column(
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text(
+                  'บัญชีที่บล็อก',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream: FirebaseFirestore.instance
+                      .collection('users')
+                      .doc(_myUid)
+                      .collection('blocks')
+                      .snapshots(),
+                  builder: (context, snap) {
+                    if (snap.hasError)
+                      return const Center(
+                        child: Text('โหลดรายการบล็อกไม่สำเร็จ'),
+                      );
+                    if (!snap.hasData)
+                      return const Center(child: CircularProgressIndicator());
+                    if (snap.data!.docs.isEmpty)
+                      return const Center(child: Text('ยังไม่มีบัญชีที่บล็อก'));
+                    return ListView(
+                      children: snap.data!.docs
+                          .map(
+                            (doc) => ListTile(
+                              leading: const Icon(Icons.block),
+                              title: Text(
+                                'บัญชี ${doc.id.substring(0, doc.id.length > 8 ? 8 : doc.id.length)}',
+                              ),
+                              trailing: TextButton(
+                                onPressed: () async {
+                                  try {
+                                    await _safetyService.unblock(doc.id);
+                                  } catch (e) {
+                                    if (mounted)
+                                      _toast('ปลดบล็อกไม่สำเร็จ: $e');
+                                  }
+                                },
+                                child: const Text('ปลดบล็อก'),
+                              ),
+                            ),
+                          )
+                          .toList(),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _confirmDeleteAccount() async {
@@ -171,8 +437,33 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     if (confirmed != true) return;
 
+    final passwordController = TextEditingController();
+    final password = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('ยืนยันตัวตนก่อนลบบัญชี'),
+        content: TextField(
+          controller: passwordController,
+          obscureText: true,
+          decoration: const InputDecoration(labelText: 'รหัสผ่านปัจจุบัน'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('ยกเลิก'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, passwordController.text),
+            child: const Text('ยืนยัน'),
+          ),
+        ],
+      ),
+    );
+    passwordController.dispose();
+    if (password == null || password.isEmpty) return;
+
     setState(() => _deleting = true);
-    final error = await _authService.deleteAccount(_myUid);
+    final error = await _authService.deleteAccount(_myUid, password: password);
 
     if (!mounted) return;
 
@@ -190,8 +481,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
   static const _pageBg = Color(0xFFF0F2F5);
   static const _btnGrey = Color(0xFFE4E6EB);
   static const _months = [
-    'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
-    'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.',
+    'ม.ค.',
+    'ก.พ.',
+    'มี.ค.',
+    'เม.ย.',
+    'พ.ค.',
+    'มิ.ย.',
+    'ก.ค.',
+    'ส.ค.',
+    'ก.ย.',
+    'ต.ค.',
+    'พ.ย.',
+    'ธ.ค.',
   ];
 
   Future<void> _confirmUnfollow(String name) async {
@@ -224,48 +525,150 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _actions(String name, String bio, String photoUrl, bool isFollowing) {
+  Widget _actions(
+    String name,
+    String bio,
+    String photoUrl,
+    bool isFollowing,
+    bool isPrivate,
+  ) {
     if (_isMe) {
-      return FilledButton.icon(
-        style: _btnStyle(bg: _fbBlue, fg: Colors.white),
-        onPressed: () => _editProfile(name, bio, photoUrl),
-        icon: const Icon(Icons.edit, size: 18),
-        label: const Text('แก้ไขโปรไฟล์'),
-      );
-    }
-    return Row(
-      children: [
-        Expanded(
-          child: isFollowing
-              ? FilledButton.icon(
-                  style: _btnStyle(bg: _btnGrey, fg: Colors.black87),
-                  onPressed: _busy ? null : () => _confirmUnfollow(name),
-                  icon: const Icon(Icons.check, size: 18),
-                  label: const Text('กำลังติดตาม'),
-                )
-              : FilledButton.icon(
-                  style: _btnStyle(bg: _fbBlue, fg: Colors.white),
-                  onPressed: _busy ? null : () => _toggleFollow(false),
-                  icon: const Icon(Icons.person_add_alt_1, size: 18),
-                  label: const Text('ติดตาม'),
-                ),
-        ),
-        const SizedBox(width: 8),
-        SizedBox(
-          width: 52,
-          child: FilledButton(
-            style: _btnStyle(bg: _btnGrey, fg: Colors.black87).copyWith(
-              padding: const WidgetStatePropertyAll(EdgeInsets.zero),
-            ),
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          FilledButton.icon(
+            style: _btnStyle(bg: _fbBlue, fg: Colors.white),
+            onPressed: () =>
+                _editProfile(name, bio, photoUrl, isPrivate: isPrivate),
+            icon: const Icon(Icons.edit, size: 18),
+            label: const Text('แก้ไขโปรไฟล์'),
+          ),
+          OutlinedButton.icon(
             onPressed: () => Navigator.push(
               context,
-              MaterialPageRoute(
-                builder: (_) => ChatScreen(peerUid: _targetUid),
+              MaterialPageRoute(builder: (_) => const PrivacySettingsScreen()),
+            ),
+            icon: const Icon(Icons.privacy_tip_outlined),
+            label: const Text('ความเป็นส่วนตัวและคำขอติดตาม'),
+          ),
+          OutlinedButton.icon(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const AccountSettingsScreen()),
+            ),
+            icon: const Icon(Icons.manage_accounts_outlined),
+            label: const Text('บัญชี อีเมล รหัสผ่าน และการแจ้งเตือน'),
+          ),
+          TextButton.icon(
+            onPressed: _manageFeedControls,
+            icon: const Icon(Icons.tune),
+            label: const Text('จัดการฟีดและโพสต์ที่ซ่อน'),
+          ),
+        ],
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: isFollowing
+                  ? FilledButton.icon(
+                      style: _btnStyle(bg: _btnGrey, fg: Colors.black87),
+                      onPressed: _busy ? null : () => _confirmUnfollow(name),
+                      icon: const Icon(Icons.check, size: 18),
+                      label: const Text('กำลังติดตาม'),
+                    )
+                  : FilledButton.icon(
+                      style: _btnStyle(bg: _fbBlue, fg: Colors.white),
+                      onPressed: _busy
+                          ? null
+                          : () async {
+                              if (_followRequestPending) {
+                                await _followService.cancelRequest(
+                                  requester: _myUid,
+                                  owner: _targetUid,
+                                );
+                                if (mounted)
+                                  setState(() => _followRequestPending = false);
+                              } else {
+                                await _toggleFollow(false);
+                              }
+                            },
+                      icon: Icon(
+                        _followRequestPending
+                            ? Icons.hourglass_top
+                            : Icons.person_add_alt_1,
+                        size: 18,
+                      ),
+                      label: Text(
+                        _followRequestPending
+                            ? '\u0e2a\u0e48\u0e07\u0e04\u0e33\u0e02\u0e2d\u0e41\u0e25\u0e49\u0e27'
+                            : '\u0e15\u0e34\u0e14\u0e15\u0e32\u0e21',
+                      ),
+                    ),
+            ),
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 52,
+              child: FilledButton(
+                style: _btnStyle(bg: _btnGrey, fg: Colors.black87).copyWith(
+                  padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+                ),
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ChatScreen(peerUid: _targetUid),
+                  ),
+                ),
+                child: const Icon(Icons.chat_bubble, size: 20),
               ),
             ),
-            child: const Icon(Icons.chat_bubble, size: 20),
-          ),
+            const SizedBox(width: 6),
+            SizedBox(
+              width: 48,
+              child: OutlinedButton(
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(48, 44),
+                  padding: EdgeInsets.zero,
+                ),
+                onPressed: _busy
+                    ? null
+                    : () async {
+                        final action = await showModalBottomSheet<String>(
+                          context: context,
+                          builder: (ctx) => SafeArea(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                ListTile(
+                                  leading: const Icon(Icons.flag_outlined),
+                                  title: const Text('รายงานโปรไฟล์'),
+                                  onTap: () => Navigator.pop(ctx, 'report'),
+                                ),
+                                ListTile(
+                                  leading: const Icon(
+                                    Icons.block,
+                                    color: Colors.red,
+                                  ),
+                                  title: const Text('บล็อกผู้ใช้นี้'),
+                                  onTap: () => Navigator.pop(ctx, 'block'),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                        if (action == 'report') await _reportProfile();
+                        if (action == 'block') await _blockProfile(name);
+                      },
+                child: const Icon(Icons.more_horiz),
+              ),
+            ),
+          ],
         ),
+        const SizedBox(height: 8),
+        _friendButton(),
       ],
     );
   }
@@ -290,10 +693,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
         child: Text.rich(
-          TextSpan(children: [
-            TextSpan(text: '$n', style: const TextStyle(fontWeight: FontWeight.bold)),
-            TextSpan(text: ' $label  ›'),
-          ]),
+          TextSpan(
+            children: [
+              TextSpan(
+                text: '$n',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              TextSpan(text: ' $label  ›'),
+            ],
+          ),
         ),
       ),
     );
@@ -306,40 +714,69 @@ class _ProfileScreenState extends State<ProfileScreen> {
       builder: (sheetContext) => SafeArea(
         child: SizedBox(
           height: MediaQuery.of(sheetContext).size.height * 0.7,
-          child: Column(children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 16, 8, 12),
-              child: Row(children: [
-                Expanded(child: Text('$title (${userIds.length})', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
-                IconButton(tooltip: 'ปิด', onPressed: () => Navigator.pop(sheetContext), icon: const Icon(Icons.close)),
-              ]),
-            ),
-            const Divider(height: 1),
-            if (userIds.isEmpty)
-              Expanded(child: Center(child: Text('ยังไม่มี$title')))
-            else
-              Expanded(child: ListView.builder(
-                itemCount: userIds.length,
-                itemBuilder: (context, index) {
-                  final uid = userIds[index];
-                  return ListTile(
-                    leading: UserAvatar(uid: uid),
-                    title: AuthorName(uid: uid),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () {
-                      Navigator.pop(sheetContext);
-                      Navigator.push(this.context, MaterialPageRoute(builder: (_) => ProfileScreen(uid: uid)));
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 16, 8, 12),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '$title (${userIds.length})',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'ปิด',
+                      onPressed: () => Navigator.pop(sheetContext),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              if (userIds.isEmpty)
+                Expanded(child: Center(child: Text('ยังไม่มี$title')))
+              else
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: userIds.length,
+                    itemBuilder: (context, index) {
+                      final uid = userIds[index];
+                      return ListTile(
+                        leading: UserAvatar(uid: uid),
+                        title: AuthorName(uid: uid),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () {
+                          Navigator.pop(sheetContext);
+                          Navigator.push(
+                            this.context,
+                            MaterialPageRoute(
+                              builder: (_) => ProfileScreen(uid: uid),
+                            ),
+                          );
+                        },
+                      );
                     },
-                  );
-                },
-              )),
-          ]),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _cover(String name, String bio, String photoUrl, String coverUrl) {
+  Widget _cover(
+    String name,
+    String bio,
+    String photoUrl,
+    String coverUrl,
+    bool isPrivate,
+  ) {
     // ปกไล่สี + รูปโปรไฟล์วงกลมใหญ่ซ้อนขอบล่างของปก (สูงรวม 150 + ครึ่งรูป)
     return SizedBox(
       height: 206,
@@ -402,7 +839,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       right: 2,
                       bottom: 2,
                       child: GestureDetector(
-                        onTap: () => _editProfile(name, bio, photoUrl),
+                        onTap: () => _editProfile(
+                          name,
+                          bio,
+                          photoUrl,
+                          isPrivate: isPrivate,
+                        ),
                         child: const CircleAvatar(
                           radius: 16,
                           backgroundColor: _btnGrey,
@@ -444,11 +886,45 @@ class _ProfileScreenState extends State<ProfileScreen> {
           return const Padding(
             padding: EdgeInsets.all(24),
             child: Center(
-              child: Text('ยังไม่มีโพสต์', style: TextStyle(color: Colors.black54)),
+              child: Text(
+                'ยังไม่มีโพสต์',
+                style: TextStyle(color: Colors.black54),
+              ),
             ),
           );
         }
-        return Column(children: posts.map((p) => _PostTile(post: p)).toList());
+        return Column(
+          children: posts
+              .map(
+                (p) => _PostTile(
+                  post: p,
+                  canEdit: _isMe,
+                  onEdit: () => _editPost(p),
+                ),
+              )
+              .toList(),
+        );
+      },
+    );
+  }
+
+  Widget _visibleProfilePosts({
+    required bool isPrivate,
+    required bool isFollowing,
+  }) {
+    if (_isMe || !isPrivate || isFollowing) return _postsSection();
+    return FutureBuilder<FriendRequestState>(
+      future: _friendStatus,
+      builder: (context, snapshot) {
+        if (snapshot.data == FriendRequestState.friends) return _postsSection();
+        return const Padding(
+          padding: EdgeInsets.all(24),
+          child: Center(
+            child: Text(
+              'บัญชีนี้เป็นส่วนตัว โพสต์จะแสดงเมื่อเป็นเพื่อนกันแล้ว',
+            ),
+          ),
+        );
       },
     );
   }
@@ -479,11 +955,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
         if (snap.hasError) {
           return _page(
             'โปรไฟล์',
-            Center(child: Text('โหลดโปรไฟล์ไม่สำเร็จ: ${snap.error}')),
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Text(
+                  'ดูโปรไฟล์นี้ไม่ได้ บัญชีอาจเป็นส่วนตัวหรือผู้ใช้นี้บล็อกคุณ',
+                ),
+              ),
+            ),
           );
         }
         if (!snap.hasData) {
-          return _page('โปรไฟล์', const Center(child: CircularProgressIndicator()));
+          return _page(
+            'โปรไฟล์',
+            const Center(child: CircularProgressIndicator()),
+          );
         }
         final data = snap.data!.data();
         if (data == null) {
@@ -491,9 +977,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
         }
         final name = (data['name'] ?? '') as String;
         final bio = (data['bio'] ?? '') as String;
-        final email = (data['email'] ?? '') as String;
         final photoUrl = (data['photoUrl'] ?? '') as String;
         final coverUrl = (data['coverUrl'] ?? '') as String;
+        final isPrivate = data['isPrivate'] == true;
         final followers = List<String>.from(data['followers'] ?? []);
         final following = List<String>.from(data['following'] ?? []);
         final isFollowing = followers.contains(_myUid);
@@ -508,7 +994,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 color: Colors.white,
                 child: Column(
                   children: [
-                    _cover(name, bio, photoUrl, coverUrl),
+                    _cover(name, bio, photoUrl, coverUrl, isPrivate),
                     const SizedBox(height: 10),
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -532,18 +1018,44 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             ),
                           ],
                           const SizedBox(height: 16),
-                          _actions(name, bio, photoUrl, isFollowing),
+                          _actions(name, bio, photoUrl, isFollowing, isPrivate),
                           const SizedBox(height: 12),
                           _infoRow(
                             Icons.people_alt_outlined,
-                            _countText(followers.length, 'ผู้ติดตาม', () => _showFollowList('ผู้ติดตาม', followers)),
+                            _countText(
+                              followers.length,
+                              'ผู้ติดตาม',
+                              () => _showFollowList('ผู้ติดตาม', followers),
+                            ),
                           ),
                           _infoRow(
                             Icons.person_add_alt_outlined,
-                            _countText(following.length, 'กำลังติดตาม', () => _showFollowList('กำลังติดตาม', following)),
+                            _countText(
+                              following.length,
+                              'กำลังติดตาม',
+                              () => _showFollowList('กำลังติดตาม', following),
+                            ),
                           ),
-                          if (_isMe && email.isNotEmpty)
-                            _infoRow(Icons.mail_outline, Text(email)),
+                          if (_isMe)
+                            StreamBuilder<
+                              DocumentSnapshot<Map<String, dynamic>>
+                            >(
+                              stream: FirebaseFirestore.instance
+                                  .collection('users')
+                                  .doc(_myUid)
+                                  .collection('private')
+                                  .doc('account')
+                                  .snapshots(),
+                              builder: (context, accountSnap) {
+                                final email =
+                                    accountSnap.data?.data()?['email']
+                                        as String? ??
+                                    '';
+                                return email.isEmpty
+                                    ? const SizedBox.shrink()
+                                    : _infoRow(Icons.mail_outline, Text(email));
+                              },
+                            ),
                           if (joined != null)
                             _infoRow(
                               Icons.calendar_month_outlined,
@@ -573,9 +1085,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                       ),
                     ),
-                    _postsSection(),
+                    _visibleProfilePosts(
+                      isPrivate: isPrivate,
+                      isFollowing: isFollowing,
+                    ),
                     if (_isMe) ...[
                       const SizedBox(height: 24),
+                      OutlinedButton.icon(
+                        onPressed: _showBlockedUsers,
+                        icon: const Icon(Icons.block_outlined),
+                        label: const Text('จัดการบัญชีที่บล็อก'),
+                      ),
+                      const SizedBox(height: 12),
                       Text(
                         'โซนอันตราย',
                         style: TextStyle(
@@ -609,7 +1130,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
 class _PostTile extends StatelessWidget {
   final Post post;
-  const _PostTile({required this.post});
+  final bool canEdit;
+  final VoidCallback onEdit;
+  const _PostTile({
+    required this.post,
+    required this.canEdit,
+    required this.onEdit,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -643,6 +1170,12 @@ class _PostTile extends StatelessWidget {
                     ],
                   ),
                 ),
+                if (canEdit)
+                  IconButton(
+                    tooltip: 'แก้ไขโพสต์',
+                    onPressed: onEdit,
+                    icon: const Icon(Icons.edit_outlined),
+                  ),
               ],
             ),
             if (post.content.isNotEmpty) ...[
@@ -680,11 +1213,105 @@ class _PostTile extends StatelessWidget {
   }
 }
 
+class _FeedControlsSheet extends StatelessWidget {
+  final String uid;
+  final PostService postService;
+  const _FeedControlsSheet({required this.uid, required this.postService});
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+    child: SizedBox(
+      height: MediaQuery.of(context).size.height * .7,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'จัดการฟีด',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'โพสต์ที่ซ่อน',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(uid)
+                  .collection('hiddenPosts')
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) return const LinearProgressIndicator();
+                if (snapshot.data!.docs.isEmpty)
+                  return const ListTile(title: Text('ยังไม่มีโพสต์ที่ซ่อน'));
+                return Column(
+                  children: snapshot.data!.docs
+                      .map(
+                        (doc) => ListTile(
+                          dense: true,
+                          leading: const Icon(Icons.visibility_off_outlined),
+                          title: Text(
+                            'โพสต์ ${doc.id.substring(0, doc.id.length > 8 ? 8 : doc.id.length)}…',
+                          ),
+                          trailing: TextButton(
+                            onPressed: () =>
+                                postService.unhidePost(uid, doc.id),
+                            child: const Text('เลิกซ่อน'),
+                          ),
+                        ),
+                      )
+                      .toList(),
+                );
+              },
+            ),
+            const Divider(),
+            const Text(
+              'บัญชีที่ซ่อน',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(uid)
+                  .collection('mutedAuthors')
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) return const LinearProgressIndicator();
+                if (snapshot.data!.docs.isEmpty)
+                  return const ListTile(title: Text('ยังไม่มีบัญชีที่ซ่อน'));
+                return Column(
+                  children: snapshot.data!.docs
+                      .map(
+                        (doc) => ListTile(
+                          dense: true,
+                          leading: UserAvatar(uid: doc.id, radius: 18),
+                          title: AuthorName(uid: doc.id),
+                          trailing: TextButton(
+                            onPressed: () =>
+                                postService.unmuteAuthor(uid, doc.id),
+                            child: const Text('เลิกซ่อน'),
+                          ),
+                        ),
+                      )
+                      .toList(),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
 class _EditProfileDialog extends StatefulWidget {
   final String uid;
   final String initialName;
   final String initialBio;
   final String initialPhotoUrl;
+  final bool initialIsPrivate;
   final AuthService authService;
 
   const _EditProfileDialog({
@@ -692,6 +1319,7 @@ class _EditProfileDialog extends StatefulWidget {
     required this.initialName,
     required this.initialBio,
     required this.initialPhotoUrl,
+    required this.initialIsPrivate,
     required this.authService,
   });
 
@@ -714,6 +1342,7 @@ class _EditProfileDialogState extends State<_EditProfileDialog> {
   Uint8List? _newPhoto; // รูปใหม่ที่เลือกไว้ (ยังไม่อัปโหลดจนกว่าจะกดบันทึก)
   bool _removePhoto = false; // true = ลบรูปเดิมทิ้ง
   bool _saving = false;
+  late bool _isPrivate = widget.initialIsPrivate;
   String? _error;
 
   bool get _hasCurrentPhoto =>
@@ -792,6 +1421,7 @@ class _EditProfileDialogState extends State<_EditProfileDialog> {
       name: name,
       bio: _bio.text.trim(),
       photoUrl: photoUrl,
+      isPrivate: _isPrivate,
     );
     if (!mounted) return;
     if (err != null) {
@@ -861,6 +1491,17 @@ class _EditProfileDialogState extends State<_EditProfileDialog> {
               maxLength: 150,
               maxLines: 3,
               decoration: const InputDecoration(labelText: 'ประวัติย่อ'),
+            ),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              value: _isPrivate,
+              onChanged: _saving
+                  ? null
+                  : (value) => setState(() => _isPrivate = value),
+              title: const Text('บัญชีส่วนตัว'),
+              subtitle: const Text(
+                'เฉพาะผู้ติดตามที่อนุมัติแล้วจึงจะเห็นโพสต์',
+              ),
             ),
             if (_error != null)
               Padding(

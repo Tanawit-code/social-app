@@ -6,6 +6,7 @@ import '../services/page_service.dart';
 import '../services/post_service.dart';
 import '../models/post_model.dart';
 import '../services/storage_service.dart';
+import '../services/safety_service.dart';
 import '../utils/image_data.dart';
 import '../widgets/user_avatar.dart';
 import 'home_feed_screen.dart' show AuthorName, PostCard;
@@ -82,6 +83,14 @@ class _PageDetailScreenState extends State<PageDetailScreen> {
       return Scaffold(
         appBar: AppBar(title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis), actions: [
           if (isOwner) IconButton(tooltip: 'เปลี่ยนรูปเพจ', onPressed: _busy ? null : _changePhoto, icon: const Icon(Icons.edit_outlined)),
+          if (!isOwner) PopupMenuButton<String>(
+            onSelected: (value) async {
+              if (value != 'report') return;
+              try { await SafetyService().report(targetType: 'page', targetId: widget.pageId, reason: 'เพจมีเนื้อหาไม่เหมาะสม'); _toast('ส่งรายงานแล้ว'); }
+              catch (e) { _toast('ส่งรายงานไม่สำเร็จ: $e'); }
+            },
+            itemBuilder: (_) => const [PopupMenuItem(value: 'report', child: Text('รายงานเพจ'))],
+          ),
         ]),
         floatingActionButton: isMember ? FloatingActionButton.extended(onPressed: _compose, icon: const Icon(Icons.edit), label: const Text('เขียนโพสต์')) : null,
         body: ListView(padding: const EdgeInsets.fromLTRB(12, 12, 12, 88), children: [

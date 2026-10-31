@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/notification_service.dart';
+import '../services/push_notification_service.dart';
 import 'chat_list_screen.dart';
 import 'home_feed_screen.dart';
 import 'notifications_screen.dart';
@@ -12,7 +13,8 @@ class _TabItem {
   final IconData icon; // ไอคอนตอนไม่ได้เลือก
   final IconData activeIcon; // ไอคอนตอนเลือก (แบบทึบ)
   final String label; // ใช้เป็น tooltip
-  final Widget Function() build; // สร้างหน้าของแท็บ (เรียกตอนเปิดครั้งแรกเท่านั้น)
+  final Widget Function()
+  build; // สร้างหน้าของแท็บ (เรียกตอนเปิดครั้งแรกเท่านั้น)
   const _TabItem(this.icon, this.activeIcon, this.label, this.build);
 }
 
@@ -32,16 +34,31 @@ class _MainShellState extends State<MainShell> {
   static const _fbBlue = Color(0xFF1877F2);
 
   static final List<_TabItem> _tabs = [
-    _TabItem(Icons.home_outlined, Icons.home, 'หน้าแรก',
-        () => const HomeFeedScreen()),
-    _TabItem(Icons.search, Icons.search, 'ค้นหา',
-        () => const SearchScreen()),
-    _TabItem(Icons.chat_bubble_outline, Icons.chat_bubble, 'แชท',
-        () => const ChatListScreen()),
-    _TabItem(Icons.notifications_none, Icons.notifications, 'การแจ้งเตือน',
-        () => const NotificationsScreen()),
-    _TabItem(Icons.person_outline, Icons.person, 'โปรไฟล์',
-        () => const ProfileScreen()),
+    _TabItem(
+      Icons.home_outlined,
+      Icons.home,
+      'หน้าแรก',
+      () => const HomeFeedScreen(),
+    ),
+    _TabItem(Icons.search, Icons.search, 'ค้นหา', () => const SearchScreen()),
+    _TabItem(
+      Icons.chat_bubble_outline,
+      Icons.chat_bubble,
+      'แชท',
+      () => const ChatListScreen(),
+    ),
+    _TabItem(
+      Icons.notifications_none,
+      Icons.notifications,
+      'การแจ้งเตือน',
+      () => const NotificationsScreen(),
+    ),
+    _TabItem(
+      Icons.person_outline,
+      Icons.person,
+      'โปรไฟล์',
+      () => const ProfileScreen(),
+    ),
   ];
 
   final _uid = AuthService().currentUser?.uid ?? '';
@@ -49,6 +66,18 @@ class _MainShellState extends State<MainShell> {
 
   // แท็บที่เคยเปิดแล้ว — แท็บที่ยังไม่เคยเปิดจะยังไม่ถูกสร้าง (lazy)
   final Set<int> _visited = {_feedIndex};
+
+  @override
+  void initState() {
+    super.initState();
+    if (_uid.isNotEmpty) {
+      PushNotificationService.instance.initialize(
+        uid: _uid,
+        navigatorKey: PushNotificationService.navigatorKey,
+      );
+      PushNotificationService.instance.restoreForUser(_uid);
+    }
+  }
 
   void _select(int i) {
     if (i == _index) return;
@@ -115,8 +144,11 @@ class _MainShellState extends State<MainShell> {
     final selected = i == _index;
     final color = selected ? _fbBlue : Colors.grey.shade600;
 
-    Widget icon = Icon(selected ? tab.activeIcon : tab.icon,
-        color: color, size: 28);
+    Widget icon = Icon(
+      selected ? tab.activeIcon : tab.icon,
+      color: color,
+      size: 28,
+    );
 
     // แท็บแชท = ข้อความใหม่, แท็บกระดิ่ง = ติดตาม/ไลก์/คอมเมนต์
     if (i == _notiIndex || i == _chatIndex) {
@@ -131,8 +163,11 @@ class _MainShellState extends State<MainShell> {
           return Badge(
             isLabelVisible: n > 0 && !selected,
             label: Text(n > 99 ? '99+' : '$n'),
-            child: Icon(selected ? tab.activeIcon : tab.icon,
-                color: color, size: 28),
+            child: Icon(
+              selected ? tab.activeIcon : tab.icon,
+              color: color,
+              size: 28,
+            ),
           );
         },
       );

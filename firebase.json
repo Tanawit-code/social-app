@@ -1,1 +1,33 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"social-app-3569a","appId":"1:593048149254:android:58cad82b0af9dc93aed287","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"social-app-3569a","configurations":{"android":"1:593048149254:android:58cad82b0af9dc93aed287","ios":"1:593048149254:ios:fdf481068113ad1faed287","macos":"1:593048149254:ios:fdf481068113ad1faed287","web":"1:593048149254:web:82cf0246604fde44aed287","windows":"1:593048149254:web:3d86dafa29b2ed92aed287"}}}}}}
+{
+    "flutter":  {
+                    "platforms":  {
+                                      "android":  {
+                                                      "default":  {
+                                                                      "projectId":  "social-app-3569a",
+                                                                      "appId":  "1:593048149254:android:58cad82b0af9dc93aed287",
+                                                                      "fileOutput":  "android/app/google-services.json"
+                                                                  }
+                                                  },
+                                      "dart":  {
+                                                   "lib/firebase_options.dart":  {
+                                                                                     "projectId":  "social-app-3569a",
+                                                                                     "configurations":  {
+                                                                                                            "android":  "1:593048149254:android:58cad82b0af9dc93aed287",
+                                                                                                            "ios":  "1:593048149254:ios:fdf481068113ad1faed287",
+                                                                                                            "macos":  "1:593048149254:ios:fdf481068113ad1faed287",
+                                                                                                            "web":  "1:593048149254:web:82cf0246604fde44aed287",
+                                                                                                            "windows":  "1:593048149254:web:3d86dafa29b2ed92aed287"
+                                                                                                        }
+                                                                                 }
+                                               }
+                                  }
+                },
+    "functions": { "source": "functions", "runtime": "nodejs20" },
+    "firestore":  {
+                      "rules":  "firestore.rules",
+                      "indexes":  "firestore.indexes.json"
+                  },
+    "storage":  {
+                    "rules":  "storage.rules"
+                }
+}

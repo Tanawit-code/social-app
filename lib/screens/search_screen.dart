@@ -24,8 +24,10 @@ class _SearchScreenState extends State<SearchScreen> {
   final _myUid = AuthService().currentUser?.uid ?? '';
   late final Stream<QuerySnapshot<Map<String, dynamic>>> _usersStream =
       FirebaseFirestore.instance.collection('users').limit(200).snapshots();
-  late final Stream<List<Post>> _postsStream =
-      PostService().feedStream(limit: 100);
+  late final Stream<List<Post>> _postsStream = PostService().feedStream(
+    viewerId: _myUid,
+    limit: 100,
+  );
 
   Timer? _debounce;
   String _query = '';
@@ -62,7 +64,10 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
           ),
           bottom: const TabBar(
-            tabs: [Tab(text: 'ผู้ใช้'), Tab(text: 'โพสต์')],
+            tabs: [
+              Tab(text: 'ผู้ใช้'),
+              Tab(text: 'โพสต์'),
+            ],
           ),
         ),
         body: TabBarView(children: [_users(), _posts()]),
@@ -77,8 +82,10 @@ class _SearchScreenState extends State<SearchScreen> {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: _usersStream,
       builder: (context, snap) {
-        if (snap.hasError) return Center(child: Text('ค้นหาไม่สำเร็จ: ${snap.error}'));
-        if (!snap.hasData) return const Center(child: CircularProgressIndicator());
+        if (snap.hasError)
+          return Center(child: Text('ค้นหาไม่สำเร็จ: ${snap.error}'));
+        if (!snap.hasData)
+          return const Center(child: CircularProgressIndicator());
         final results = snap.data!.docs.where((d) {
           if (d.id == _myUid) return false;
           final name = ((d.data()['name'] ?? '') as String).toLowerCase();
@@ -133,7 +140,9 @@ class _SearchScreenState extends State<SearchScreen> {
                   stream: _postsStream,
                   builder: (context, snap) {
                     if (snap.hasError) {
-                      return Center(child: Text('ค้นหาไม่สำเร็จ: ${snap.error}'));
+                      return Center(
+                        child: Text('ค้นหาไม่สำเร็จ: ${snap.error}'),
+                      );
                     }
                     if (!snap.hasData) {
                       return const Center(child: CircularProgressIndicator());

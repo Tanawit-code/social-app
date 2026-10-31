@@ -1,0 +1,9 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // This app currently stores images as bounded data URLs and videos on
+    // Cloudinary. Keep Firebase Storage closed until ownership, access and
+    // content validation are designed for actual upload paths.
+    match /{allPaths=**} { allow read, write: if false; }
+  }
+}

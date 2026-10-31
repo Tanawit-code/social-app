@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/auth_service.dart';
 import '../services/chat_service.dart';
+import '../services/safety_service.dart';
 import '../services/storage_service.dart';
 import '../services/notification_service.dart';
 import '../utils/image_data.dart';
@@ -40,18 +41,20 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     final id = _chat.chatId(_myUid, widget.peerUid);
-    _readSubscription = FirebaseFirestore.instance
-        .collection('chats')
-        .doc(id)
-        .collection('messages')
-        .snapshots()
-        .listen((_) {
-          NotificationService().markChatRead(_myUid, id).catchError((_) {});
-        });
+    _ensureReadStream(id);
     _controller.addListener(() {
       final has = _controller.text.trim().isNotEmpty;
       if (has != _hasText) setState(() => _hasText = has);
     });
+  }
+
+  Future<void> _ensureReadStream(String id) async {
+    await _chat.ensureDirectChat(_myUid, widget.peerUid);
+    if (!mounted) return;
+    _readSubscription = FirebaseFirestore.instance
+        .collection('chats').doc(id).collection('messages').snapshots().listen((_) {
+          NotificationService().markChatRead(_myUid, id).catchError((_) {});
+        });
   }
 
   @override
@@ -164,6 +167,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         if (showTime) _TimeLabel(time: ts.toDate()),
                         _MessageRow(
                           data: d,
+                          messageId: docs[i].id,
                           mine: sender == _myUid,
                           first: first,
                           last: last,
@@ -293,6 +297,7 @@ class _TimeLabel extends StatelessWidget {
 
 class _MessageRow extends StatelessWidget {
   final Map<String, dynamic> data;
+  final String messageId;
   final bool mine;
   final bool first;
   final bool last;
@@ -300,6 +305,7 @@ class _MessageRow extends StatelessWidget {
 
   const _MessageRow({
     required this.data,
+    required this.messageId,
     required this.mine,
     required this.first,
     required this.last,
@@ -332,6 +338,22 @@ class _MessageRow extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _reportMessage(BuildContext context) async {
+    final ok = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+      title: const Text('รายงานข้อความ'),
+      content: const Text('ส่งข้อความนี้ให้ทีมดูแลตรวจสอบหรือไม่?'),
+      actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('ยกเลิก')),
+        FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('รายงาน'))],
+    ));
+    if (ok != true) return;
+    try {
+      await SafetyService().report(targetType: 'message', targetId: '${peerUid}_$messageId', reason: 'ข้อความไม่เหมาะสม');
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('ส่งรายงานแล้ว')));
+    } catch (e) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ส่งรายงานไม่สำเร็จ: $e')));
+    }
   }
 
   @override
@@ -391,12 +413,10 @@ class _MessageRow extends StatelessWidget {
             ),
             const SizedBox(width: 6),
           ],
-          Flexible(
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: maxW),
-              child: content,
-            ),
-          ),
+          Flexible(child: GestureDetector(
+            onLongPress: mine ? null : () => _reportMessage(context),
+            child: ConstrainedBox(constraints: BoxConstraints(maxWidth: maxW), child: content),
+          )),
         ],
       ),
     );
