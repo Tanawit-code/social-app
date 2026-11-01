@@ -35,7 +35,14 @@ exports.sendUserPush = onDocumentCreated(
     const response = await getMessaging().sendEachForMulticast({
       tokens: tokens.map((item) => item.token),
       notification: { title, body },
-      data: { route: '/notifications', type: String(notification.type || 'activity') },
+      // ค่าใน data ของ FCM ต้องเป็น string เท่านั้น (ห้าม null) — แอปใช้ฟิลด์เหล่านี้เปิดห้องแชทตรงๆ
+      data: {
+        route: '/notifications',
+        type: String(notification.type || 'activity'),
+        fromUid: String(notification.fromUid || ''),
+        chatId: String(notification.chatId || ''),
+        groupId: String(notification.groupId || ''),
+      },
       android: { priority: 'high' },
       apns: { payload: { aps: { sound: 'default' } } },
     });

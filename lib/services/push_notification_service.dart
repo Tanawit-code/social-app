@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'dart:async';
+import '../screens/chat_screen.dart';
+import '../screens/group_chat_screen.dart';
 
 class PushNotificationService {
   PushNotificationService._();
@@ -24,15 +26,55 @@ class PushNotificationService {
       final context = navigatorKey.currentContext;
       if (context != null && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(body.isEmpty ? title : '$title: $body')),
+          SnackBar(
+            content: Text(body.isEmpty ? title : '$title: $body'),
+            action: SnackBarAction(
+              label: 'เปิด',
+              onPressed: () => _openFromMessage(message, uid, navigatorKey),
+            ),
+          ),
         );
       }
     });
-    FirebaseMessaging.onMessageOpenedApp.listen((_) {
-      navigatorKey.currentState?.pushNamed('/notifications');
-    });
+    FirebaseMessaging.onMessageOpenedApp.listen(
+      (message) => _openFromMessage(message, uid, navigatorKey),
+    );
     final initial = await _messaging.getInitialMessage();
-    if (initial != null) navigatorKey.currentState?.pushNamed('/notifications');
+    if (initial != null) {
+      // เปิดแอปจากสถานะปิดสนิท: รอให้หน้าแรกวาดเสร็จก่อนค่อย push
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _openFromMessage(initial, uid, navigatorKey),
+      );
+    }
+  }
+
+  /// กดแจ้งเตือนข้อความ -> เข้าห้องแชทนั้นเลย (กลุ่ม: groupId, 1:1: fromUid)
+  /// ชนิดอื่นหรือข้อมูลไม่ครบ -> ไปหน้าการแจ้งเตือนเหมือนเดิม
+  void _openFromMessage(
+    RemoteMessage message,
+    String myUid,
+    GlobalKey<NavigatorState> navigatorKey,
+  ) {
+    final nav = navigatorKey.currentState;
+    if (nav == null) return;
+    final data = message.data;
+    if (data['type'] == 'message') {
+      final groupId = (data['groupId'] ?? '').toString();
+      final fromUid = (data['fromUid'] ?? '').toString();
+      if (groupId.isNotEmpty) {
+        nav.push(
+          MaterialPageRoute(builder: (_) => GroupChatScreen(groupId: groupId)),
+        );
+        return;
+      }
+      if (fromUid.isNotEmpty && fromUid != myUid) {
+        nav.push(
+          MaterialPageRoute(builder: (_) => ChatScreen(peerUid: fromUid)),
+        );
+        return;
+      }
+    }
+    nav.pushNamed('/notifications');
   }
 
   Future<bool> enableForUser(String uid) async {

@@ -14,8 +14,13 @@ class ChatService {
   Future<void> ensureDirectChat(String me, String peer) async {
     if (me.isEmpty || peer.isEmpty || me == peer) return;
     final ref = _db.collection('chats').doc(chatId(me, peer));
-    final snap = await ref.get();
-    if (snap.exists) return;
+    try {
+      final snap = await ref.get();
+      if (snap.exists) return;
+    } on FirebaseException catch (e) {
+      // ห้องยังไม่มี + rules เดิมปฏิเสธการ get -> ไปสร้างห้องต่อ
+      if (e.code != 'permission-denied') rethrow;
+    }
     final participants = [me, peer]..sort();
     await ref.set({
       'type': 'direct',
@@ -25,7 +30,10 @@ class ChatService {
     });
   }
 
-  Stream<QuerySnapshot<Map<String, dynamic>>> messages(String me, String peer) async* {
+  Stream<QuerySnapshot<Map<String, dynamic>>> messages(
+    String me,
+    String peer,
+  ) async* {
     await ensureDirectChat(me, peer);
     yield* _db
         .collection('chats')
@@ -56,7 +64,9 @@ class ChatService {
     for (final uid in memberUids.toSet()) {
       if (uid == ownerUid || !following.contains(uid)) continue;
       final member = await _db.collection('users').doc(uid).get();
-      final memberFollowing = List<String>.from(member.data()?['following'] ?? const []);
+      final memberFollowing = List<String>.from(
+        member.data()?['following'] ?? const [],
+      );
       if (memberFollowing.contains(ownerUid)) friends.add(uid);
     }
     if (friends.length != memberUids.toSet().length) {
@@ -78,26 +88,42 @@ class ChatService {
     return ref.id;
   }
 
-  Future<void> updateGroup(String groupId, String uid, Map<String, dynamic> data) async {
+  Future<void> updateGroup(
+    String groupId,
+    String uid,
+    Map<String, dynamic> data,
+  ) async {
     final ref = _db.collection('chats').doc(groupId);
     final snap = await ref.get();
-    if (!snap.exists || snap.data()?['type'] != 'group' || snap.data()?['ownerId'] != uid) {
+    if (!snap.exists ||
+        snap.data()?['type'] != 'group' ||
+        snap.data()?['ownerId'] != uid) {
       throw Exception('เฉพาะเจ้าของกลุ่มเท่านั้นที่แก้ไขได้');
     }
     await ref.update(data);
   }
 
-  Future<void> sendGroup({required String groupId, required String fromUid, String? text, String? imageUrl}) async {
+  Future<void> sendGroup({
+    required String groupId,
+    required String fromUid,
+    String? text,
+    String? imageUrl,
+  }) async {
     assert(text != null || imageUrl != null);
     final ref = _db.collection('chats').doc(groupId);
     final group = await ref.get();
     final data = group.data();
     final participants = List<String>.from(data?['participants'] ?? const []);
-    if (!group.exists || data?['type'] != 'group' || !participants.contains(fromUid)) {
+    if (!group.exists ||
+        data?['type'] != 'group' ||
+        !participants.contains(fromUid)) {
       throw Exception('คุณไม่ใช่สมาชิกของกลุ่มนี้');
     }
     final preview = imageUrl != null ? '📷 รูปภาพ' : text!;
-    await ref.update({'lastMessage': preview, 'lastAt': FieldValue.serverTimestamp()});
+    await ref.update({
+      'lastMessage': preview,
+      'lastAt': FieldValue.serverTimestamp(),
+    });
     await ref.collection('messages').add({
       'senderId': fromUid,
       'text': text,
@@ -130,11 +156,12 @@ class ChatService {
     final ref = _db.collection('chats').doc(chatId(fromUid, toUid));
     final preview = imageUrl != null ? '📷 รูปภาพ' : text!;
 
-    await ref.set({
-      'participants': [fromUid, toUid],
+    // ห้องถูกสร้างแล้วโดย ensureDirectChat; ห้ามแตะ participants (rules บังคับว่าต้องเหมือนเดิมและเรียงเดิม)
+    await ensureDirectChat(fromUid, toUid);
+    await ref.update({
       'lastMessage': preview,
       'lastAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    });
 
     await ref.collection('messages').add({
       'senderId': fromUid,
