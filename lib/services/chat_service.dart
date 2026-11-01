@@ -146,6 +146,34 @@ class ChatService {
     }
   }
 
+  /// ลบข้อความแบบ "ข้อความถูกลบ" (ให้ทุกคนในห้องเห็นเป็นกล่องว่างที่เขียนว่าข้อความถูกลบ)
+  /// ล้างเนื้อหา text/imageUrl ทิ้งจริง แล้วใส่ deleted: true
+  /// rules: เจ้าของข้อความ หรือเจ้าของกลุ่มเท่านั้น
+  Future<void> deleteMessage({
+    required String chatId,
+    required String messageId,
+  }) async {
+    final chat = _db.collection('chats').doc(chatId);
+    await chat.collection('messages').doc(messageId).update({
+      'deleted': true,
+      'text': null,
+      'imageUrl': null,
+    });
+    try {
+      // ถ้าข้อความที่ลบเป็นข้อความล่าสุด ให้รายการแชทแสดง "ข้อความถูกลบ" ด้วย
+      final latest = await chat
+          .collection('messages')
+          .orderBy('createdAt', descending: true)
+          .limit(1)
+          .get();
+      if (latest.docs.isNotEmpty && latest.docs.first.id == messageId) {
+        await chat.update({'lastMessage': 'ข้อความถูกลบ'});
+      }
+    } catch (_) {
+      // ลบข้อความสำเร็จแล้ว ถ้าอัปเดตตัวอย่างข้อความล่าสุดไม่ได้ก็ไม่เป็นไร
+    }
+  }
+
   Future<void> send({
     required String fromUid,
     required String toUid,

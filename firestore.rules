@@ -540,7 +540,13 @@ service cloud.firestore {
           && ((request.resource.data.get('text', '') is string && request.resource.data.get('text', '').size() > 0)
             || (request.resource.data.get('imageUrl', '') is string && request.resource.data.get('imageUrl', '').size() > 0))
           && (parentChat().participants.size() > 2 || !blockedEitherWay(request.auth.uid, peer()));
-        allow update, delete: if signedIn() && (resource.data.senderId == request.auth.uid || parentChat().ownerId == request.auth.uid);
+        // ลบข้อความ = soft-delete เท่านั้น (ล้าง text/imageUrl + deleted: true) แก้เนื้อหาอย่างอื่นไม่ได้
+        allow update: if signedIn() && (resource.data.senderId == request.auth.uid || parentChat().ownerId == request.auth.uid)
+          && request.resource.data.deleted == true
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'imageUrl', 'deleted'])
+          && request.resource.data.get('text', null) == null
+          && request.resource.data.get('imageUrl', null) == null;
+        allow delete: if signedIn() && (resource.data.senderId == request.auth.uid || parentChat().ownerId == request.auth.uid);
       }
     }
 

@@ -31,8 +31,8 @@ class _ChatScreenState extends State<ChatScreen> {
   final _picker = ImagePicker();
   final _controller = TextEditingController();
   final _myUid = AuthService().currentUser?.uid ?? '';
-  late final Stream<QuerySnapshot<Map<String, dynamic>>> _stream =
-      _chat.messages(_myUid, widget.peerUid);
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _stream = _chat
+      .messages(_myUid, widget.peerUid);
   bool _sending = false;
   bool _hasText = false;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _readSubscription;
@@ -52,7 +52,11 @@ class _ChatScreenState extends State<ChatScreen> {
     await _chat.ensureDirectChat(_myUid, widget.peerUid);
     if (!mounted) return;
     _readSubscription = FirebaseFirestore.instance
-        .collection('chats').doc(id).collection('messages').snapshots().listen((_) {
+        .collection('chats')
+        .doc(id)
+        .collection('messages')
+        .snapshots()
+        .listen((_) {
           NotificationService().markChatRead(_myUid, id).catchError((_) {});
         });
   }
@@ -96,10 +100,15 @@ class _ChatScreenState extends State<ChatScreen> {
         return;
       }
       setState(() => _sending = true);
-      final url = await _storage.uploadChatImageBytes(bytes: bytes, uid: _myUid);
+      final url = await _storage.uploadChatImageBytes(
+        bytes: bytes,
+        uid: _myUid,
+      );
       await _chat.send(fromUid: _myUid, toUid: widget.peerUid, imageUrl: url);
     } catch (e) {
-      _toast('ส่งรูปไม่สำเร็จ: ${e.toString().replaceFirst('Exception: ', '')}');
+      _toast(
+        'ส่งรูปไม่สำเร็จ: ${e.toString().replaceFirst('Exception: ', '')}',
+      );
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -123,7 +132,10 @@ class _ChatScreenState extends State<ChatScreen> {
             Expanded(
               child: AuthorName(
                 uid: widget.peerUid,
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
               ),
             ),
           ],
@@ -150,7 +162,9 @@ class _ChatScreenState extends State<ChatScreen> {
                   itemBuilder: (_, i) {
                     final d = docs[i].data();
                     final sender = (d['senderId'] ?? '') as String;
-                    final older = i + 1 < docs.length ? docs[i + 1].data() : null;
+                    final older = i + 1 < docs.length
+                        ? docs[i + 1].data()
+                        : null;
                     final newer = i > 0 ? docs[i - 1].data() : null;
                     // เรียงกลุ่มข้อความของคนเดียวกันติดกัน: first = เก่าสุดในกลุ่ม, last = ใหม่สุดในกลุ่ม
                     final first = older == null || older['senderId'] != sender;
@@ -160,7 +174,10 @@ class _ChatScreenState extends State<ChatScreen> {
                     final showTime =
                         ts != null &&
                         (olderTs == null ||
-                            ts.toDate().difference(olderTs.toDate()).inMinutes >=
+                            ts
+                                    .toDate()
+                                    .difference(olderTs.toDate())
+                                    .inMinutes >=
                                 30);
                     return Column(
                       children: [
@@ -269,8 +286,18 @@ class _EmptyChat extends StatelessWidget {
 }
 
 const _thaiMonths = [
-  'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
-  'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.',
+  'ม.ค.',
+  'ก.พ.',
+  'มี.ค.',
+  'เม.ย.',
+  'พ.ค.',
+  'มิ.ย.',
+  'ก.ค.',
+  'ส.ค.',
+  'ก.ย.',
+  'ต.ค.',
+  'พ.ย.',
+  'ธ.ค.',
 ];
 
 class _TimeLabel extends StatelessWidget {
@@ -322,7 +349,9 @@ class _MessageRow extends StatelessWidget {
           children: [
             Positioned.fill(
               child: InteractiveViewer(
-                child: Center(child: AppImage(src: src, fit: BoxFit.contain)),
+                child: Center(
+                  child: AppImage(src: src, fit: BoxFit.contain),
+                ),
               ),
             ),
             Positioned(
@@ -340,19 +369,78 @@ class _MessageRow extends StatelessWidget {
     );
   }
 
+  Future<void> _deleteMessage(BuildContext context) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('ลบข้อความ'),
+        content: const Text(
+          'ข้อความนี้จะถูกแทนที่ด้วย “ข้อความถูกลบ” สำหรับทุกคนในห้องแชท และกู้คืนไม่ได้',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('ยกเลิก'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('ลบ'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final me = AuthService().currentUser?.uid ?? '';
+    final chat = ChatService();
+    try {
+      await chat.deleteMessage(
+        chatId: chat.chatId(me, peerUid),
+        messageId: messageId,
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('ลบข้อความไม่สำเร็จ: $e')));
+      }
+    }
+  }
+
   Future<void> _reportMessage(BuildContext context) async {
-    final ok = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
-      title: const Text('รายงานข้อความ'),
-      content: const Text('ส่งข้อความนี้ให้ทีมดูแลตรวจสอบหรือไม่?'),
-      actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('ยกเลิก')),
-        FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('รายงาน'))],
-    ));
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('รายงานข้อความ'),
+        content: const Text('ส่งข้อความนี้ให้ทีมดูแลตรวจสอบหรือไม่?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('ยกเลิก'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('รายงาน'),
+          ),
+        ],
+      ),
+    );
     if (ok != true) return;
     try {
-      await SafetyService().report(targetType: 'message', targetId: '${peerUid}_$messageId', reason: 'ข้อความไม่เหมาะสม');
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('ส่งรายงานแล้ว')));
+      await SafetyService().report(
+        targetType: 'message',
+        targetId: '${peerUid}_$messageId',
+        reason: 'ข้อความไม่เหมาะสม',
+      );
+      if (context.mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('ส่งรายงานแล้ว')));
     } catch (e) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ส่งรายงานไม่สำเร็จ: $e')));
+      if (context.mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('ส่งรายงานไม่สำเร็จ: $e')));
     }
   }
 
@@ -371,8 +459,26 @@ class _MessageRow extends StatelessWidget {
       bottomRight: mine && !last ? small : big,
     );
 
+    final deleted = data['deleted'] == true;
+
     Widget content;
-    if (imageUrl != null && imageUrl.isNotEmpty) {
+    if (deleted) {
+      content = Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.black26),
+          borderRadius: radius,
+        ),
+        child: const Text(
+          'ข้อความถูกลบ',
+          style: TextStyle(
+            fontSize: 14,
+            fontStyle: FontStyle.italic,
+            color: Colors.black45,
+          ),
+        ),
+      );
+    } else if (imageUrl != null && imageUrl.isNotEmpty) {
       content = GestureDetector(
         onTap: () => _openImage(context, imageUrl),
         child: ClipRRect(
@@ -402,7 +508,9 @@ class _MessageRow extends StatelessWidget {
     return Padding(
       padding: EdgeInsets.only(top: first ? 6 : 1.5),
       child: Row(
-        mainAxisAlignment: mine ? MainAxisAlignment.end : MainAxisAlignment.start,
+        mainAxisAlignment: mine
+            ? MainAxisAlignment.end
+            : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           if (!mine) ...[
@@ -413,10 +521,25 @@ class _MessageRow extends StatelessWidget {
             ),
             const SizedBox(width: 6),
           ],
-          Flexible(child: GestureDetector(
-            onLongPress: mine ? null : () => _reportMessage(context),
-            child: ConstrainedBox(constraints: BoxConstraints(maxWidth: maxW), child: content),
-          )),
+          Flexible(
+            child: GestureDetector(
+              // กดค้าง (มือถือ) หรือคลิกขวา (เว็บ): ข้อความของเรา = ลบ, ของอีกฝ่าย = รายงาน
+              onLongPress: deleted
+                  ? null
+                  : () => mine
+                        ? _deleteMessage(context)
+                        : _reportMessage(context),
+              onSecondaryTap: deleted
+                  ? null
+                  : () => mine
+                        ? _deleteMessage(context)
+                        : _reportMessage(context),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: maxW),
+                child: content,
+              ),
+            ),
+          ),
         ],
       ),
     );

@@ -62,15 +62,11 @@ class PushNotificationService {
       final groupId = (data['groupId'] ?? '').toString();
       final fromUid = (data['fromUid'] ?? '').toString();
       if (groupId.isNotEmpty) {
-        nav.push(
-          MaterialPageRoute(builder: (_) => GroupChatScreen(groupId: groupId)),
-        );
+        nav.push(MaterialPageRoute(builder: (_) => GroupChatScreen(groupId: groupId)));
         return;
       }
       if (fromUid.isNotEmpty && fromUid != myUid) {
-        nav.push(
-          MaterialPageRoute(builder: (_) => ChatScreen(peerUid: fromUid)),
-        );
+        nav.push(MaterialPageRoute(builder: (_) => ChatScreen(peerUid: fromUid)));
         return;
       }
     }
