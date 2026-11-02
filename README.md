@@ -62,7 +62,7 @@ tools/                         # สคริปต์ย้ายข้อม�
 ### สิ่งที่ต้องมี
 - [Flutter SDK](https://docs.flutter.dev/get-started/install) (Dart ^3.12)
 - [Node.js](https://nodejs.org) 20 ขึ้นไป และ Firebase CLI: `npm install -g firebase-tools`
-- Java 11 ขึ้นไป (เฉพาะตอนรันเทสต์ rules ด้วย Firestore Emulator)
+- JDK 21 ขึ้นไป (เฉพาะตอนรันเทสต์ rules ด้วย Firestore Emulator — firebase-tools รุ่นปัจจุบันไม่รองรับ Java ต่ำกว่า 21)
 
 ### ตั้งค่า
 ```bash
