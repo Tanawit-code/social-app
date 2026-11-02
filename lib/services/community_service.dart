@@ -114,6 +114,17 @@ class CommunityService {
     required String uid,
     required String type,
   }) async {
+    const allowed = [
+      'like',
+      'dislike',
+      'love',
+      'care',
+      'haha',
+      'wow',
+      'sad',
+      'angry',
+    ];
+    if (!allowed.contains(type)) throw Exception('ชนิด reaction ไม่ถูกต้อง');
     final postRef = postDocument(communityId, postId);
     final reactionRef = postRef.collection('reactions').doc(uid);
     await _db.runTransaction((tx) async {
@@ -137,6 +148,11 @@ class CommunityService {
       });
     });
   }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> reactions(
+    String communityId,
+    String postId,
+  ) => postDocument(communityId, postId).collection('reactions').snapshots();
 
   Stream<QuerySnapshot<Map<String, dynamic>>> comments(
     String communityId,

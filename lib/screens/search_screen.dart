@@ -1,3 +1,4 @@
+import '../widgets/privacy_icon.dart';
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -42,8 +43,8 @@ class _SearchScreenState extends State<SearchScreen> {
   late Stream<QuerySnapshot<Map<String, dynamic>>> _usersStream =
       _buildUsersStream();
   late Stream<List<Post>> _postsStream = _buildPostsStream();
-  late final Stream<List<Community>> _communitiesStream =
-      CommunityService().streamCommunities();
+  late final Stream<List<Community>> _communitiesStream = CommunityService()
+      .streamCommunities();
   late final Stream<QuerySnapshot<Map<String, dynamic>>> _pagesStream =
       PageService().pages();
   late final Stream<List<SocialEvent>> _eventsStream = EventService().stream();
@@ -135,13 +136,7 @@ class _SearchScreenState extends State<SearchScreen> {
           ),
         ),
         body: TabBarView(
-          children: [
-            _users(),
-            _posts(),
-            _communities(),
-            _pages(),
-            _events(),
-          ],
+          children: [_users(), _posts(), _communities(), _pages(), _events()],
         ),
       ),
     );
@@ -334,7 +329,16 @@ class _SearchScreenState extends State<SearchScreen> {
                         if (i == results.length) return _loadMore(loadMore);
                         final p = results[i];
                         return ListTile(
-                          title: AuthorName(uid: p.authorId),
+                          title: Row(
+                            children: [
+                              Flexible(child: AuthorName(uid: p.authorId)),
+                              const SizedBox(width: 6),
+                              PostPrivacyIcon(
+                                audience: p.audience,
+                                pageId: p.pageId,
+                              ),
+                            ],
+                          ),
                           subtitle: Text(
                             p.content,
                             maxLines: 2,

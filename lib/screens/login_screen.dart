@@ -87,7 +87,11 @@ class _LoginScreenState extends State<LoginScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.group, size: 72, color: Colors.deepPurple),
+                Icon(
+                  Icons.group,
+                  size: 72,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
                 const SizedBox(height: 12),
                 const Text(
                   'เข้าสู่ระบบ',

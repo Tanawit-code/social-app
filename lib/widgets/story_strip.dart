@@ -21,139 +21,14 @@ class _StoryStripState extends State<StoryStrip> {
   final _service = StoryService();
 
   Future<void> _create() async {
-    final text = TextEditingController();
-    Uint8List? image;
-    var audience = 'public';
-    var busy = false;
+    // เนื้อหาของ sheet แยกเป็น widget ของตัวเอง (มี State/Controller ของตัวเอง)
+    // เพื่อไม่ให้ dispose controller ทันทีหลัง pop ตอนที่ TextField ยังอยู่ใน animation ปิด
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (sheetContext) => StatefulBuilder(
-        builder: (context, setSheetState) => Padding(
-          padding: EdgeInsets.fromLTRB(
-            20,
-            18,
-            20,
-            MediaQuery.of(context).viewInsets.bottom + 20,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text(
-                'สร้าง Story (แสดง 24 ชั่วโมง)',
-                style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: text,
-                maxLength: 500,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  hintText: 'เขียนข้อความใน Story',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              if (image != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: Image.memory(image!, height: 180, fit: BoxFit.cover),
-                ),
-              Row(
-                children: [
-                  OutlinedButton.icon(
-                    onPressed: busy
-                        ? null
-                        : () async {
-                            final file = await ImagePicker().pickImage(
-                              source: ImageSource.gallery,
-                              maxWidth: 640,
-                              maxHeight: 960,
-                              imageQuality: 55,
-                            );
-                            if (!sheetContext.mounted) return;
-                            if (file != null) {
-                              final bytes = await file.readAsBytes();
-                              if (!sheetContext.mounted) return;
-                              setSheetState(() => image = bytes);
-                            }
-                          },
-                    icon: const Icon(Icons.image_outlined),
-                    label: const Text('เลือกรูป'),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      initialValue: audience,
-                      decoration: const InputDecoration(labelText: 'ผู้ชม'),
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'public',
-                          child: Text('สาธารณะ'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'friends',
-                          child: Text('เพื่อน'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'private',
-                          child: Text('ส่วนตัว'),
-                        ),
-                      ],
-                      onChanged: (v) {
-                        if (v != null) setSheetState(() => audience = v);
-                      },
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              FilledButton(
-                onPressed: busy
-                    ? null
-                    : () async {
-                        if (text.text.trim().isEmpty && image == null) return;
-                        setSheetState(() => busy = true);
-                        var popped = false;
-                        try {
-                          final media = image == null
-                              ? null
-                              : await StorageService().uploadPostImageBytes(
-                                  bytes: image!,
-                                  uid: _uid,
-                                );
-                          await _service.create(
-                            authorId: _uid,
-                            text: text.text,
-                            mediaUrl: media,
-                            audience: audience,
-                          );
-                          if (sheetContext.mounted) {
-                            popped = true;
-                            Navigator.pop(sheetContext);
-                          }
-                        } catch (e) {
-                          if (sheetContext.mounted)
-                            ScaffoldMessenger.of(sheetContext).showSnackBar(
-                              SnackBar(
-                                content: Text('สร้าง Story ไม่สำเร็จ: $e'),
-                              ),
-                            );
-                        } finally {
-                          if (!popped && sheetContext.mounted)
-                            setSheetState(() => busy = false);
-                        }
-                      },
-                child: busy
-                    ? const CircularProgressIndicator()
-                    : const Text('แชร์ Story'),
-              ),
-            ],
-          ),
-        ),
-      ),
+      useSafeArea: true,
+      builder: (_) => _CreateStorySheet(uid: _uid, service: _service),
     );
-    text.dispose();
   }
 
   void _view(List<Story> stories, int start) {
@@ -212,6 +87,141 @@ class _StoryStripState extends State<StoryStrip> {
   }
 }
 
+class _CreateStorySheet extends StatefulWidget {
+  final String uid;
+  final StoryService service;
+  const _CreateStorySheet({required this.uid, required this.service});
+  @override
+  State<_CreateStorySheet> createState() => _CreateStorySheetState();
+}
+
+class _CreateStorySheetState extends State<_CreateStorySheet> {
+  final _text = TextEditingController();
+  Uint8List? _image;
+  String _audience = 'public';
+  bool _busy = false;
+
+  @override
+  void dispose() {
+    _text.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pick() async {
+    final file = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 640,
+      maxHeight: 960,
+      imageQuality: 55,
+    );
+    if (file == null) return;
+    final bytes = await file.readAsBytes();
+    if (!mounted) return;
+    setState(() => _image = bytes);
+  }
+
+  Future<void> _submit() async {
+    if (_text.text.trim().isEmpty && _image == null) return;
+    setState(() => _busy = true);
+    try {
+      final media = _image == null
+          ? null
+          : await StorageService().uploadPostImageBytes(
+              bytes: _image!,
+              uid: widget.uid,
+            );
+      await widget.service.create(
+        authorId: widget.uid,
+        text: _text.text,
+        mediaUrl: media,
+        audience: _audience,
+      );
+      if (!mounted) return;
+      Navigator.of(context).pop();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('สร้าง Story ไม่สำเร็จ: $e')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: EdgeInsets.fromLTRB(
+        20,
+        18,
+        20,
+        MediaQuery.viewInsetsOf(context).bottom + 20,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'สร้าง Story (แสดง 24 ชั่วโมง)',
+            style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _text,
+            maxLength: 500,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              hintText: 'เขียนข้อความใน Story',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          if (_image != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Image.memory(_image!, height: 180, fit: BoxFit.cover),
+            ),
+          Row(
+            children: [
+              OutlinedButton.icon(
+                onPressed: _busy ? null : _pick,
+                icon: const Icon(Icons.image_outlined),
+                label: const Text('เลือกรูป'),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  initialValue: _audience,
+                  decoration: const InputDecoration(labelText: 'ผู้ชม'),
+                  items: const [
+                    DropdownMenuItem(value: 'public', child: Text('สาธารณะ')),
+                    DropdownMenuItem(value: 'friends', child: Text('เพื่อน')),
+                    DropdownMenuItem(value: 'private', child: Text('ส่วนตัว')),
+                  ],
+                  onChanged: _busy
+                      ? null
+                      : (v) {
+                          if (v != null) setState(() => _audience = v);
+                        },
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          FilledButton(
+            onPressed: _busy ? null : _submit,
+            child: _busy
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('แชร์ Story'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _StoryCircle extends StatelessWidget {
   final String uid, label;
   final bool hasStory;
@@ -236,7 +246,9 @@ class _StoryCircle extends StatelessWidget {
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: hasStory ? Colors.deepPurple : Colors.grey.shade400,
+                    color: hasStory
+                        ? Theme.of(context).colorScheme.primary
+                        : Colors.grey.shade400,
                     width: hasStory ? 3 : 1,
                   ),
                 ),

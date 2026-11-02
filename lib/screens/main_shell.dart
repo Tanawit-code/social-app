@@ -31,7 +31,7 @@ class _MainShellState extends State<MainShell> {
   static const _feedIndex = 0;
   static const _chatIndex = 2;
   static const _notiIndex = 3;
-  static const _fbBlue = Color(0xFF1877F2);
+  Color get _fbBlue => Theme.of(context).colorScheme.primary;
 
   static final List<_TabItem> _tabs = [
     _TabItem(

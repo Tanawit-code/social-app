@@ -1,3 +1,4 @@
+import '../widgets/text_controller_scope.dart';
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -246,135 +247,147 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       );
       return;
     }
-    final name = TextEditingController(text: group['name'] ?? '');
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      builder: (sheetContext) => StatefulBuilder(
-        builder: (context, setSheet) => SafeArea(
-          child: SingleChildScrollView(
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(
-                20,
-                18,
-                20,
-                MediaQuery.of(context).viewInsets.bottom + 20,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'ตั้งค่ากลุ่ม',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 16),
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      Navigator.pop(sheetContext);
-                      _showMembers(group);
-                    },
-                    icon: const Icon(Icons.people_outline),
-                    label: Text(
-                      'ดูสมาชิก (${((group['participants'] as List?) ?? []).length} คน)',
-                    ),
-                  ),
-                  TextField(
-                    controller: name,
-                    maxLength: 40,
-                    decoration: const InputDecoration(
-                      labelText: 'ชื่อกลุ่ม',
-                      border: OutlineInputBorder(),
-                    ),
-                    onSubmitted: (_) async {
-                      if (name.text.trim().isNotEmpty)
-                        await ChatService().updateGroup(widget.groupId, _uid, {
-                          'name': name.text.trim(),
-                        });
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 10,
-                    children: [
-                      OutlinedButton.icon(
-                        onPressed: () async {
-                          await _pickImage(group, 'photoUrl');
-                          if (context.mounted) Navigator.pop(sheetContext);
-                        },
-                        icon: const Icon(Icons.photo_camera),
-                        label: const Text('เปลี่ยนรูปกลุ่ม'),
+      builder: (sheetContext) => TextControllerScope(
+        text: group['name'] ?? '',
+        builder: (_, name) => StatefulBuilder(
+          builder: (context, setSheet) => SafeArea(
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  18,
+                  20,
+                  MediaQuery.of(context).viewInsets.bottom + 20,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'ตั้งค่ากลุ่ม',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
                       ),
-                      OutlinedButton.icon(
-                        onPressed: () async {
-                          await _pickImage(group, 'backgroundUrl');
-                          if (context.mounted) Navigator.pop(sheetContext);
-                        },
-                        icon: const Icon(Icons.wallpaper),
-                        label: const Text('เลือกรูปพื้นหลัง'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  const Text('สีพื้นหลังแชท'),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 12,
-                    children: _colors
-                        .map(
-                          (color) => InkWell(
-                            onTap: () async {
-                              await ChatService().updateGroup(
-                                widget.groupId,
-                                _uid,
-                                {'backgroundColor': color, 'backgroundUrl': ''},
-                              );
-                              if (context.mounted) Navigator.pop(sheetContext);
-                            },
-                            child: CircleAvatar(
-                              radius: 19,
-                              backgroundColor: Color(color),
-                              child: (group['backgroundColor'] == color)
-                                  ? const Icon(Icons.check, size: 18)
-                                  : null,
-                            ),
-                          ),
-                        )
-                        .toList(),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton(
-                      onPressed: () async {
-                        if (name.text.trim().isEmpty) {
-                          _toast('กรุณาใส่ชื่อกลุ่ม');
-                          return;
-                        }
-                        await ChatService().updateGroup(widget.groupId, _uid, {
-                          'name': name.text.trim(),
-                        });
-                        if (context.mounted) Navigator.pop(sheetContext);
+                    ),
+                    const SizedBox(height: 16),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(sheetContext);
+                        _showMembers(group);
                       },
-                      child: const Text('บันทึกชื่อ'),
+                      icon: const Icon(Icons.people_outline),
+                      label: Text(
+                        'ดูสมาชิก (${((group['participants'] as List?) ?? []).length} คน)',
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  const Divider(),
-                  const SizedBox(height: 4),
-                  ..._groupActionButtons(
-                    sheetContext,
-                    group,
-                    includeMembers: false,
-                  ),
-                ],
+                    TextField(
+                      controller: name,
+                      maxLength: 40,
+                      decoration: const InputDecoration(
+                        labelText: 'ชื่อกลุ่ม',
+                        border: OutlineInputBorder(),
+                      ),
+                      onSubmitted: (_) async {
+                        if (name.text.trim().isNotEmpty)
+                          await ChatService().updateGroup(
+                            widget.groupId,
+                            _uid,
+                            {'name': name.text.trim()},
+                          );
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 10,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: () async {
+                            await _pickImage(group, 'photoUrl');
+                            if (context.mounted) Navigator.pop(sheetContext);
+                          },
+                          icon: const Icon(Icons.photo_camera),
+                          label: const Text('เปลี่ยนรูปกลุ่ม'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: () async {
+                            await _pickImage(group, 'backgroundUrl');
+                            if (context.mounted) Navigator.pop(sheetContext);
+                          },
+                          icon: const Icon(Icons.wallpaper),
+                          label: const Text('เลือกรูปพื้นหลัง'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    const Text('สีพื้นหลังแชท'),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 12,
+                      children: _colors
+                          .map(
+                            (color) => InkWell(
+                              onTap: () async {
+                                await ChatService().updateGroup(
+                                  widget.groupId,
+                                  _uid,
+                                  {
+                                    'backgroundColor': color,
+                                    'backgroundUrl': '',
+                                  },
+                                );
+                                if (context.mounted)
+                                  Navigator.pop(sheetContext);
+                              },
+                              child: CircleAvatar(
+                                radius: 19,
+                                backgroundColor: Color(color),
+                                child: (group['backgroundColor'] == color)
+                                    ? const Icon(Icons.check, size: 18)
+                                    : null,
+                              ),
+                            ),
+                          )
+                          .toList(),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: () async {
+                          if (name.text.trim().isEmpty) {
+                            _toast('กรุณาใส่ชื่อกลุ่ม');
+                            return;
+                          }
+                          await ChatService().updateGroup(
+                            widget.groupId,
+                            _uid,
+                            {'name': name.text.trim()},
+                          );
+                          if (context.mounted) Navigator.pop(sheetContext);
+                        },
+                        child: const Text('บันทึกชื่อ'),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Divider(),
+                    const SizedBox(height: 4),
+                    ..._groupActionButtons(
+                      sheetContext,
+                      group,
+                      includeMembers: false,
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
         ),
       ),
     );
-    name.dispose();
   }
 
   void _showMembers(Map<String, dynamic> initial) {

@@ -1,3 +1,4 @@
+import '../widgets/text_controller_scope.dart';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -9,6 +10,7 @@ import '../services/storage_service.dart';
 import '../services/safety_service.dart';
 import '../services/post_service.dart';
 import '../services/friend_service.dart';
+import '../services/profile_posts_service.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/post_media.dart';
 import '../utils/image_data.dart';
@@ -49,18 +51,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
           .doc(_targetUid)
           .snapshots();
 
-  // ไม่ใช้ orderBy ร่วมกับ where เพื่อไม่ต้องสร้าง composite index — เรียงฝั่ง client แทน
-  late final Stream<List<Post>> _postsStream = FirebaseFirestore.instance
-      .collection('posts')
-      .where('authorId', isEqualTo: _targetUid)
-      .snapshots()
-      .map((snap) {
-        final now = DateTime.now().millisecondsSinceEpoch;
-        int t(Post p) => p.createdAt?.millisecondsSinceEpoch ?? now;
-        final list = snap.docs.map((d) => Post.fromDoc(d)).toList();
-        list.sort((a, b) => t(b).compareTo(t(a)));
-        return list;
-      });
+  // โพสต์บนโปรไฟล์: ตัวเองเห็นทั้งหมด (รวมเพจ/ชุมชนส่วนตัว) คนอื่นเห็นเฉพาะที่สาธารณะ
+  late final Stream<List<ProfilePost>> _postsStream = ProfilePostsService()
+      .stream(
+        viewerId: _myUid,
+        targetId: _targetUid,
+        isFriend: _friendStatus.then((s) => s == FriendRequestState.friends),
+      );
 
   bool _busy = false;
   bool _followRequestPending = false;
@@ -437,29 +434,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     if (confirmed != true) return;
 
-    final passwordController = TextEditingController();
     final password = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('ยืนยันตัวตนก่อนลบบัญชี'),
-        content: TextField(
-          controller: passwordController,
-          obscureText: true,
-          decoration: const InputDecoration(labelText: 'รหัสผ่านปัจจุบัน'),
+      builder: (dialogContext) => TextControllerScope(
+        builder: (_, passwordController) => AlertDialog(
+          title: const Text('ยืนยันตัวตนก่อนลบบัญชี'),
+          content: TextField(
+            controller: passwordController,
+            obscureText: true,
+            decoration: const InputDecoration(labelText: 'รหัสผ่านปัจจุบัน'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('ยกเลิก'),
+            ),
+            FilledButton(
+              onPressed: () =>
+                  Navigator.pop(dialogContext, passwordController.text),
+              child: const Text('ยืนยัน'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('ยกเลิก'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, passwordController.text),
-            child: const Text('ยืนยัน'),
-          ),
-        ],
       ),
     );
-    passwordController.dispose();
     if (password == null || password.isEmpty) return;
 
     setState(() => _deleting = true);
@@ -477,7 +475,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
   }
 
-  static const _fbBlue = Color(0xFF1877F2);
+  Color get _fbBlue => Theme.of(context).colorScheme.primary;
   static const _pageBg = Color(0xFFF0F2F5);
   static const _btnGrey = Color(0xFFE4E6EB);
   static const _months = [
@@ -788,9 +786,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
             right: 0,
             height: 150,
             child: Container(
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [Color(0xFF6750A4), Color(0xFF1877F2)],
+                  colors: [
+                    Theme.of(context).colorScheme.primary,
+                    Color.lerp(
+                      Theme.of(context).colorScheme.primary,
+                      Colors.black,
+                      0.35,
+                    )!,
+                  ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
@@ -866,7 +871,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _postsSection() {
-    return StreamBuilder<List<Post>>(
+    return StreamBuilder<List<ProfilePost>>(
       stream: _postsStream,
       builder: (context, snap) {
         if (snap.hasError) {
@@ -897,9 +902,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
           children: posts
               .map(
                 (p) => _PostTile(
-                  post: p,
-                  canEdit: _isMe,
-                  onEdit: () => _editPost(p),
+                  item: p,
+                  canEdit: _isMe && p.source != ProfilePostSource.community,
+                  onEdit: () => _editPost(p.post),
                 ),
               )
               .toList(),
@@ -1129,17 +1134,84 @@ class _ProfileScreenState extends State<ProfileScreen> {
 }
 
 class _PostTile extends StatelessWidget {
-  final Post post;
+  final ProfilePost item;
   final bool canEdit;
   final VoidCallback onEdit;
   const _PostTile({
-    required this.post,
+    required this.item,
     required this.canEdit,
     required this.onEdit,
   });
 
+  Post get post => item.post;
+
+  static const _grey = TextStyle(fontSize: 11, color: Colors.black54);
+
+  /// ไอคอนบอกว่าโพสต์สาธารณะ / เพื่อน / ส่วนตัว
+  static Widget _privacyIcon(String privacy) {
+    final data = switch (privacy) {
+      'private' => (Icons.lock_outline, 'ส่วนตัว'),
+      'friends' => (Icons.people_outline, 'เพื่อน'),
+      _ => (Icons.public, 'สาธารณะ'),
+    };
+    return Tooltip(
+      message: data.$2,
+      child: Icon(data.$1, size: 14, color: Colors.black54),
+    );
+  }
+
+  /// บรรทัด "โพสต์ในเพจ/ชุมชน: ชื่อ" + ไอคอนความเป็นส่วนตัวของเพจ/ชุมชนนั้น
+  Widget _sourceLine() {
+    final isPage = item.source == ProfilePostSource.page;
+    final ref = FirebaseFirestore.instance
+        .collection(isPage ? 'pages' : 'communities')
+        .doc(item.sourceId);
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: ref.snapshots(),
+      builder: (context, snap) {
+        final data = snap.data?.data();
+        final name = data?['name'] as String? ?? '...';
+        final privacy = data?['privacy'] as String? ?? 'public';
+        return Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Row(
+            children: [
+              Icon(
+                isPage ? Icons.flag_outlined : Icons.groups_2_outlined,
+                size: 15,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(width: 5),
+              Flexible(
+                child: Text(
+                  '${isPage ? 'โพสต์ในเพจ' : 'โพสต์ในชุมชน'}: $name',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              _privacyIcon(privacy == 'private' ? 'private' : 'public'),
+              const SizedBox(width: 3),
+              Text(
+                privacy == 'private'
+                    ? (isPage ? 'เพจส่วนตัว' : 'ชุมชนส่วนตัว')
+                    : (isPage ? 'เพจสาธารณะ' : 'ชุมชนสาธารณะ'),
+                style: _grey,
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final inGroup = item.source != ProfilePostSource.personal;
     return Card(
       color: Colors.white,
       surfaceTintColor: Colors.transparent,
@@ -1160,12 +1232,17 @@ class _PostTile extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       AuthorName(uid: post.authorId),
-                      Text(
-                        formatRelativeTime(post.createdAt),
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: Colors.black54,
-                        ),
+                      Row(
+                        children: [
+                          Text(
+                            formatRelativeTime(post.createdAt),
+                            style: _grey,
+                          ),
+                          if (!inGroup) ...[
+                            const SizedBox(width: 6),
+                            _privacyIcon(post.audience),
+                          ],
+                        ],
                       ),
                     ],
                   ),
@@ -1178,6 +1255,7 @@ class _PostTile extends StatelessWidget {
                   ),
               ],
             ),
+            if (inGroup) _sourceLine(),
             if (post.content.isNotEmpty) ...[
               const SizedBox(height: 10),
               Text(post.content, style: const TextStyle(fontSize: 15)),

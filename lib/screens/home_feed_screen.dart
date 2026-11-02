@@ -1,3 +1,4 @@
+import '../widgets/privacy_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:share_plus/share_plus.dart';
@@ -11,6 +12,9 @@ import '../widgets/post_media.dart';
 import 'pages_screen.dart';
 import '../widgets/suggested_people.dart';
 import '../widgets/story_strip.dart';
+import '../widgets/reactions.dart';
+import '../theme/app_theme.dart';
+import '../widgets/text_controller_scope.dart';
 import 'reels_screen.dart';
 import 'communities_screen.dart';
 
@@ -24,6 +28,11 @@ class HomeFeedScreen extends StatefulWidget {
 class _HomeFeedScreenState extends State<HomeFeedScreen> {
   final _postService = PostService();
   final _authService = AuthService();
+  // สร้าง stream ครั้งเดียว — ถ้าสร้างใหม่ใน build() ทุกครั้ง ฟีดจะ resubscribe แล้ว
+  // กลับไปเป็นหน้าโหลด ทำให้ widget ใต้ ListView (รวม StoryStrip) ถูกถอดตอน sheet ยังเปิดอยู่
+  late final Stream<List<Post>> _feed = _postService.feedStream(
+    viewerId: _authService.currentUser?.uid ?? '',
+  );
 
   Future<void> _logout() async {
     await _authService.logout();
@@ -36,7 +45,6 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
     final uid = _authService.currentUser?.uid ?? '';
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF0F2F5),
       appBar: AppBar(
         title: const Text(
           'Social',
@@ -44,6 +52,11 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
         ),
         // ค้นหา/แชท/แจ้งเตือน/โปรไฟล์ ย้ายไปอยู่ bottom bar (MainShell) แล้ว
         actions: [
+          IconButton(
+            tooltip: 'ธีมสี',
+            icon: const Icon(Icons.palette_outlined),
+            onPressed: () => showThemePicker(context),
+          ),
           IconButton(
             tooltip: 'ชุมชน',
             icon: const Icon(Icons.groups_2_outlined),
@@ -68,7 +81,7 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
         ],
       ),
       body: StreamBuilder<List<Post>>(
-        stream: _postService.feedStream(viewerId: uid),
+        stream: _feed,
         builder: (context, snapshot) {
           if (snapshot.hasError) {
             return _ErrorState(message: 'โหลดฟีดไม่สำเร็จ: ${snapshot.error}');
@@ -318,23 +331,6 @@ class _AuthorNameState extends State<AuthorName> {
   }
 }
 
-class _ReactionOption {
-  final String type;
-  final String emoji;
-  final String label;
-  const _ReactionOption(this.type, this.emoji, this.label);
-}
-
-const _reactionOptions = [
-  _ReactionOption('like', '\u{1F44D}', 'Like'),
-  _ReactionOption('love', '\u2764\uFE0F', 'Love'),
-  _ReactionOption('care', '\u{1F917}', 'Care'),
-  _ReactionOption('haha', '\u{1F602}', 'Haha'),
-  _ReactionOption('wow', '\u{1F62E}', 'Wow'),
-  _ReactionOption('sad', '\u{1F622}', 'Sad'),
-  _ReactionOption('angry', '\u{1F621}', 'Angry'),
-];
-
 class PostCard extends StatefulWidget {
   final Post post;
   final String currentUid;
@@ -400,7 +396,7 @@ class _PostCardState extends State<PostCard> {
             alignment: WrapAlignment.spaceEvenly,
             spacing: 8,
             runSpacing: 8,
-            children: _reactionOptions
+            children: kReactionOptions
                 .map(
                   (option) => InkWell(
                     borderRadius: BorderRadius.circular(14),
@@ -656,12 +652,21 @@ class _PostCardState extends State<PostCard> {
                             onTap: _openProfile,
                             child: AuthorName(uid: post.authorId),
                           ),
-                          Text(
-                            formatRelativeTime(post.createdAt),
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: Colors.black54,
-                            ),
+                          Row(
+                            children: [
+                              Text(
+                                formatRelativeTime(post.createdAt),
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.black54,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              PostPrivacyIcon(
+                                audience: post.audience,
+                                pageId: post.pageId,
+                              ),
+                            ],
                           ),
                         ],
                       ),
@@ -818,7 +823,7 @@ class _PostCardState extends State<PostCard> {
                         counts[type] = (counts[type] ?? 0) + 1;
                       }
                     }
-                    final options = _reactionOptions
+                    final options = kReactionOptions
                         .where(
                           (option) =>
                               option.type != 'like' &&
@@ -847,8 +852,8 @@ class _PostCardState extends State<PostCard> {
                   stream: _myReactionStream,
                   builder: (context, snap) {
                     final myType = snap.data?.data()?['type'] as String?;
-                    _ReactionOption? selectedReaction;
-                    for (final option in _reactionOptions) {
+                    ReactionOption? selectedReaction;
+                    for (final option in kReactionOptions) {
                       if (option.type == myType) selectedReaction = option;
                     }
                     return Row(
@@ -909,7 +914,9 @@ class _PostCardState extends State<PostCard> {
     String? emoji,
     VoidCallback? onLongPress,
   }) {
-    final color = active ? Colors.blue : Colors.black54;
+    final color = active
+        ? Theme.of(context).colorScheme.primary
+        : Colors.black54;
     return InkWell(
       onTap: onTap,
       onLongPress: onLongPress,
@@ -1192,33 +1199,34 @@ class _CommentsSheetState extends State<_CommentsSheet> {
   }
 
   Future<void> _editComment(String commentId, String oldText) async {
-    final controller = TextEditingController(text: oldText);
     final updated = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('แก้ไขความคิดเห็น'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLength: 2000,
-          minLines: 2,
-          maxLines: 5,
-          decoration: const InputDecoration(border: OutlineInputBorder()),
+      builder: (dialogContext) => TextControllerScope(
+        text: oldText,
+        builder: (_, controller) => AlertDialog(
+          title: const Text('แก้ไขความคิดเห็น'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            maxLength: 2000,
+            minLines: 2,
+            maxLines: 5,
+            decoration: const InputDecoration(border: OutlineInputBorder()),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('ยกเลิก'),
+            ),
+            FilledButton(
+              onPressed: () =>
+                  Navigator.pop(dialogContext, controller.text.trim()),
+              child: const Text('บันทึก'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('ยกเลิก'),
-          ),
-          FilledButton(
-            onPressed: () =>
-                Navigator.pop(dialogContext, controller.text.trim()),
-            child: const Text('บันทึก'),
-          ),
-        ],
       ),
     );
-    controller.dispose();
     if (updated == null || updated.isEmpty) return;
     try {
       await widget.postService.updateComment(

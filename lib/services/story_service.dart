@@ -5,7 +5,18 @@ import '../models/story_model.dart';
 class StoryService {
   final _db = FirebaseFirestore.instance;
 
-  Stream<List<Story>> feed(String viewerId) {
+  /// listen ซ้ำได้ และเริ่มทำงานเมื่อมีคน listen เท่านั้น
+  Stream<List<Story>> feed(String viewerId) =>
+      Stream<List<Story>>.multi((multi) {
+        final sub = _feedOnce(viewerId).listen(
+          multi.addSync,
+          onError: multi.addErrorSync,
+          onDone: multi.closeSync,
+        );
+        multi.onCancel = sub.cancel;
+      });
+
+  Stream<List<Story>> _feedOnce(String viewerId) {
     final controller = StreamController<List<Story>>();
     final userSubs = <StreamSubscription>[];
     final storySubs = <String, StreamSubscription>{};

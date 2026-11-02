@@ -69,7 +69,22 @@ class PostService {
   }
 
   /// à¸Ÿà¸µà¸”à¹€à¸£à¸µà¸¢à¸‡à¸•à¸²à¸¡à¹€à¸§à¸¥à¸²à¸¥à¹ˆà¸²à¸ªà¸¸à¸”à¸à¹ˆà¸­à¸™ (real-time stream)
-  Stream<List<Post>> feedStream({required String viewerId, int limit = 30}) {
+  /// Stream นี้ listen ซ้ำได้ (เช่น StreamBuilder ถูกถอดแล้วใส่กลับตอนสลับแท็บ/ตัวกรอง)
+  /// โดยสร้างการ subscribe ใหม่ให้ทุกครั้งที่มีคน listen และเริ่มทำงานเมื่อมีคน listen เท่านั้น
+  Stream<List<Post>> feedStream({required String viewerId, int limit = 30}) =>
+      Stream<List<Post>>.multi((multi) {
+        final sub = _feedStreamOnce(viewerId: viewerId, limit: limit).listen(
+          multi.addSync,
+          onError: multi.addErrorSync,
+          onDone: multi.closeSync,
+        );
+        multi.onCancel = sub.cancel;
+      });
+
+  Stream<List<Post>> _feedStreamOnce({
+    required String viewerId,
+    int limit = 30,
+  }) {
     final controller = StreamController<List<Post>>();
     StreamSubscription? userSub;
     StreamSubscription? blocksSub;

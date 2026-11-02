@@ -1,3 +1,4 @@
+import '../widgets/privacy_icon.dart';
 import 'package:flutter/material.dart';
 import '../models/post_model.dart';
 import '../services/auth_service.dart';
@@ -66,6 +67,12 @@ class ReelsScreen extends StatelessWidget {
                                   color: Colors.white,
                                   fontWeight: FontWeight.bold,
                                 ),
+                              ),
+                              const SizedBox(width: 8),
+                              PostPrivacyIcon(
+                                audience: reel.audience,
+                                pageId: reel.pageId,
+                                color: Colors.white70,
                               ),
                             ],
                           ),

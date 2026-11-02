@@ -26,6 +26,7 @@ dependencies:
   http: ^1.2.2
   share_plus: ^13.3.1
   cloud_functions: ^5.6.2
+  shared_preferences: ^2.3.2
 
 dev_dependencies:
   flutter_test:
@@ -53,5 +54,3 @@ flutter:
     # assets:
   #   - images/a_dot_burr.jpeg
   #   - images/a_dot_ham.jpeg
-
-

@@ -424,7 +424,7 @@ service cloud.firestore {
           allow read: if communityCanView(communityId);
           allow create, update: if self(uid) && communityCanView(communityId)
             && request.resource.data.keys().hasOnly(['type'])
-            && request.resource.data.type in ['like', 'dislike'];
+            && request.resource.data.type in ['like', 'dislike', 'love', 'care', 'haha', 'wow', 'sad', 'angry'];
           allow delete: if self(uid) && communityCanView(communityId);
         }
 

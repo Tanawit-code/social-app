@@ -1,3 +1,6 @@
+import '../widgets/privacy_icon.dart';
+import 'package:share_plus/share_plus.dart';
+import '../widgets/reactions.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'dart:typed_data';
@@ -9,6 +12,7 @@ import '../services/storage_service.dart';
 import '../services/video_upload_service.dart';
 import '../widgets/post_media.dart';
 import '../widgets/user_avatar.dart';
+import '../widgets/text_controller_scope.dart';
 import 'community_moderation_screen.dart';
 
 class CommunityDetailScreen extends StatefulWidget {
@@ -171,40 +175,41 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
   }
 
   Future<void> _editPost(String postId, String oldText) async {
-    final controller = TextEditingController(text: oldText);
-    final save = await showDialog<bool>(
+    final newText = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('แก้ไขโพสต์'),
-        content: TextField(
-          controller: controller,
-          maxLines: 5,
-          maxLength: 5000,
+      builder: (ctx) => TextControllerScope(
+        text: oldText,
+        builder: (_, controller) => AlertDialog(
+          title: const Text('แก้ไขโพสต์'),
+          content: TextField(
+            controller: controller,
+            maxLines: 5,
+            maxLength: 5000,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('ยกเลิก'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, controller.text),
+              child: const Text('บันทึก'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('ยกเลิก'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('บันทึก'),
-          ),
-        ],
       ),
     );
-    if (save == true) {
+    if (newText != null) {
       try {
         await _service.editPost(
           communityId: widget.community.id,
           postId: postId,
-          text: controller.text,
+          text: newText,
         );
       } catch (e) {
         _message('แก้ไขโพสต์ไม่สำเร็จ: $e');
       }
     }
-    controller.dispose();
   }
 
   void _openComments({
@@ -466,15 +471,24 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
                                                   CrossAxisAlignment.start,
                                               children: [
                                                 _MemberName(uid: authorId),
-                                                Text(
-                                                  _communityTime(
-                                                    data['createdAt']
-                                                        as Timestamp?,
-                                                  ),
-                                                  style: const TextStyle(
-                                                    fontSize: 12,
-                                                    color: Colors.black54,
-                                                  ),
+                                                Row(
+                                                  children: [
+                                                    Text(
+                                                      _communityTime(
+                                                        data['createdAt']
+                                                            as Timestamp?,
+                                                      ),
+                                                      style: const TextStyle(
+                                                        fontSize: 12,
+                                                        color: Colors.black54,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 6),
+                                                    PrivacyIcon(
+                                                      widget.community.privacy,
+                                                      scope: 'ชุมชน',
+                                                    ),
+                                                  ],
                                                 ),
                                               ],
                                             ),
@@ -559,6 +573,8 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
                                         communityId: widget.community.id,
                                         postId: doc.id,
                                         uid: _uid,
+                                        text: data['text'] as String? ?? '',
+                                        mediaUrl: data['mediaUrl'] as String?,
                                         likeCount:
                                             (data['likeCount'] as num?)
                                                 ?.toInt() ??
@@ -622,6 +638,8 @@ class _CommunityPostActions extends StatelessWidget {
   final String communityId;
   final String postId;
   final String uid;
+  final String text;
+  final String? mediaUrl;
   final int likeCount;
   final int dislikeCount;
   final VoidCallback onComments;
@@ -629,109 +647,125 @@ class _CommunityPostActions extends StatelessWidget {
     required this.communityId,
     required this.postId,
     required this.uid,
+    required this.text,
+    required this.mediaUrl,
     required this.likeCount,
     required this.dislikeCount,
     required this.onComments,
   });
 
+  Future<void> _react(BuildContext context, String type) async {
+    try {
+      await CommunityService().setReaction(
+        communityId: communityId,
+        postId: postId,
+        uid: uid,
+        type: type,
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('ทำรายการไม่สำเร็จ: $e')));
+    }
+  }
+
+  Future<void> _share(BuildContext context) async {
+    final parts = <String>[
+      if (text.trim().isNotEmpty) text.trim(),
+      if (mediaUrl != null && !mediaUrl!.startsWith('data:')) mediaUrl!,
+      'โพสต์นี้แชร์จากชุมชนใน Social',
+    ];
+    try {
+      await SharePlus.instance.share(
+        ShareParams(text: parts.join('\n\n'), title: 'แชร์โพสต์'),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('แชร์โพสต์ไม่สำเร็จ: $e')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final service = CommunityService();
     final post = service.postDocument(communityId, postId);
+    final primary = Theme.of(context).colorScheme.primary;
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
           padding: const EdgeInsets.only(top: 8),
           child: Row(
             children: [
-              if (likeCount > 0)
-                const Icon(Icons.thumb_up, size: 15, color: Colors.blue),
-              if (likeCount > 0)
-                Padding(
-                  padding: const EdgeInsets.only(left: 4),
-                  child: Text(
-                    '$likeCount',
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                ),
+              if (likeCount > 0) ...[
+                Icon(Icons.thumb_up, size: 14, color: primary),
+                const SizedBox(width: 4),
+                Text('$likeCount', style: const TextStyle(fontSize: 12)),
+              ],
               if (dislikeCount > 0) ...[
-                if (likeCount > 0) const SizedBox(width: 8),
-                const Icon(Icons.thumb_down, size: 15, color: Colors.grey),
-                Padding(
-                  padding: const EdgeInsets.only(left: 4),
-                  child: Text(
-                    '$dislikeCount',
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                ),
+                if (likeCount > 0) const SizedBox(width: 10),
+                const Icon(Icons.thumb_down, size: 14, color: Colors.grey),
+                const SizedBox(width: 4),
+                Text('$dislikeCount', style: const TextStyle(fontSize: 12)),
               ],
               const Spacer(),
               StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                 stream: service.comments(communityId, postId),
                 builder: (context, snap) => Text(
-                  '${snap.data?.size ?? 0} comments',
+                  '${snap.data?.size ?? 0} คอมเมนต์',
                   style: const TextStyle(fontSize: 12, color: Colors.black54),
                 ),
               ),
             ],
           ),
         ),
+        ReactionSummary(stream: service.reactions(communityId, postId)),
         const Divider(height: 14),
         StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
           stream: post.collection('reactions').doc(uid).snapshots(),
           builder: (context, snap) {
             final type = snap.data?.data()?['type'] as String?;
+            final selected = reactionOptionFor(type);
             return Row(
               children: [
                 Expanded(
-                  child: TextButton.icon(
-                    onPressed: () => service.setReaction(
-                      communityId: communityId,
-                      postId: postId,
-                      uid: uid,
-                      type: 'like',
-                    ),
-                    icon: Icon(
-                      Icons.thumb_up_alt_outlined,
-                      color: type == 'like' ? Colors.blue : Colors.grey,
-                    ),
-                    label: Text(
-                      'Like',
-                      style: TextStyle(
-                        color: type == 'like'
-                            ? Colors.blue
-                            : Colors.grey.shade700,
-                      ),
+                  child: PostActionButton(
+                    icon: Icons.thumb_up,
+                    label: selected?.label ?? 'Like',
+                    emoji: selected == null || selected.type == 'like'
+                        ? null
+                        : selected.emoji,
+                    active: type != null && type != 'dislike',
+                    onTap: () => _react(context, 'like'),
+                    onLongPress: () => showReactionPicker(
+                      context,
+                      (value) => _react(context, value),
                     ),
                   ),
                 ),
                 Expanded(
-                  child: TextButton.icon(
-                    onPressed: () => service.setReaction(
-                      communityId: communityId,
-                      postId: postId,
-                      uid: uid,
-                      type: 'dislike',
-                    ),
-                    icon: Icon(
-                      Icons.thumb_down_alt_outlined,
-                      color: type == 'dislike' ? Colors.blue : Colors.grey,
-                    ),
-                    label: Text(
-                      'Dislike',
-                      style: TextStyle(
-                        color: type == 'dislike'
-                            ? Colors.blue
-                            : Colors.grey.shade700,
-                      ),
-                    ),
+                  child: PostActionButton(
+                    icon: Icons.thumb_down,
+                    label: 'Dislike',
+                    active: type == 'dislike',
+                    onTap: () => _react(context, 'dislike'),
                   ),
                 ),
                 Expanded(
-                  child: TextButton.icon(
-                    onPressed: onComments,
-                    icon: const Icon(Icons.mode_comment_outlined),
-                    label: const Text('Comment'),
+                  child: PostActionButton(
+                    icon: Icons.comment_outlined,
+                    label: 'Comment',
+                    onTap: onComments,
+                  ),
+                ),
+                Expanded(
+                  child: PostActionButton(
+                    icon: Icons.share_outlined,
+                    label: 'Share',
+                    onTap: () => _share(context),
                   ),
                 ),
               ],
@@ -794,36 +828,38 @@ class _CommunityCommentsSheetState extends State<_CommunityCommentsSheet> {
   }
 
   Future<void> _edit(String commentId, String oldText) async {
-    final controller = TextEditingController(text: oldText);
-    final save = await showDialog<bool>(
+    final newText = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('แก้ไขคอมเมนต์'),
-        content: TextField(
-          controller: controller,
-          maxLength: 2000,
-          maxLines: 4,
+      builder: (ctx) => TextControllerScope(
+        text: oldText,
+        builder: (_, controller) => AlertDialog(
+          title: const Text('แก้ไขคอมเมนต์'),
+          content: TextField(
+            controller: controller,
+            maxLength: 2000,
+            maxLines: 4,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('ยกเลิก'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, controller.text),
+              child: const Text('บันทึก'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('ยกเลิก'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('บันทึก'),
-          ),
-        ],
       ),
     );
-    if (save == true)
+    if (newText != null) {
       await _service.editComment(
         communityId: widget.communityId,
         postId: widget.postId,
         commentId: commentId,
-        text: controller.text,
+        text: newText,
       );
-    controller.dispose();
+    }
   }
 
   @override
