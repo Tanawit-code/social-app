@@ -5,6 +5,37 @@ const { getMessaging } = require('firebase-admin/messaging');
 
 initializeApp();
 
+// ข้อความ push ตามชนิดแจ้งเตือน — ให้ตรงกับหน้าแจ้งเตือนในแอป (lib/screens/notifications_screen.dart)
+const SOURCE_LABEL = {
+  post: 'โพสต์',
+  friend: 'เพื่อน',
+  follow: 'ผู้ติดตาม',
+  chat: 'แชท',
+  community: 'ชุมชน',
+  page: 'เพจ',
+};
+const ACTION_TEXT = {
+  like: 'ถูกใจโพสต์ของคุณ',
+  comment: 'แสดงความคิดเห็นในโพสต์ของคุณ',
+  message: 'ส่งข้อความถึงคุณ',
+  follow: 'เริ่มติดตามคุณ',
+  follow_request: 'ส่งคำขอติดตามบัญชีส่วนตัวของคุณ',
+  friend_request: 'ส่งคำขอเป็นเพื่อนถึงคุณ',
+  friend_accepted: 'ตอบรับเป็นเพื่อนกับคุณ',
+  community_join_request: 'ขอเข้าร่วมชุมชนของคุณ',
+  community_join_approved: 'อนุมัติให้คุณเข้าร่วมชุมชนแล้ว',
+  community_join_declined: 'ปฏิเสธคำขอเข้าร่วมชุมชนของคุณ',
+  page_join_request: 'ขอเข้าร่วมเพจของคุณ',
+  page_join_approved: 'อนุมัติให้คุณเข้าร่วมเพจแล้ว',
+  page_join_declined: 'ปฏิเสธคำขอเข้าร่วมเพจของคุณ',
+};
+const SOURCE_BY_TYPE = {
+  like: 'post', comment: 'post', message: 'chat', follow: 'follow', follow_request: 'follow',
+  friend_request: 'friend', friend_accepted: 'friend',
+  community_join_request: 'community', community_join_approved: 'community', community_join_declined: 'community',
+  page_join_request: 'page', page_join_approved: 'page', page_join_declined: 'page',
+};
+
 exports.sendUserPush = onDocumentCreated(
   'users/{uid}/notifications/{notificationId}',
   async (event) => {
@@ -25,10 +56,16 @@ exports.sendUserPush = onDocumentCreated(
     if (notification.type !== 'message' && account.socialNotifications === false) return;
 
     const senderName = senderSnap?.data()?.name || 'มีคน';
-    const title = notification.type === 'message' ? 'ข้อความใหม่' : 'การแจ้งเตือนใหม่';
-    const body = notification.type === 'message'
-      ? `${senderName} ส่งข้อความถึงคุณ`
-      : (notification.text || `${senderName} มีกิจกรรมกับบัญชีของคุณ`);
+    const source = notification.source || SOURCE_BY_TYPE[notification.type] || 'post';
+    const sourceLabel = SOURCE_LABEL[source] || 'การแจ้งเตือน';
+    // หัวข้อบอกว่ามาจากไหน เช่น "ชุมชน · ชื่อชุมชน"
+    const title = notification.type === 'message'
+      ? 'ข้อความใหม่'
+      : (notification.sourceName ? `${sourceLabel} · ${notification.sourceName}` : sourceLabel);
+    const action = ACTION_TEXT[notification.type] || 'มีกิจกรรมกับบัญชีของคุณ';
+    const body = notification.type === 'comment' && notification.text
+      ? `${senderName} ${action}: ${notification.text}`
+      : `${senderName} ${action}`;
     const tokens = tokenSnap.docs.map((doc) => ({ id: doc.id, token: doc.data().token })).filter((item) => item.token);
     if (tokens.length === 0) return;
 
@@ -39,6 +76,8 @@ exports.sendUserPush = onDocumentCreated(
       data: {
         route: '/notifications',
         type: String(notification.type || 'activity'),
+        source: String(source),
+        sourceId: String(notification.sourceId || ''),
         fromUid: String(notification.fromUid || ''),
         chatId: String(notification.chatId || ''),
         groupId: String(notification.groupId || ''),

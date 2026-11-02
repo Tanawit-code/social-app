@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../models/community_model.dart';
 import '../services/auth_service.dart';
 import '../services/community_service.dart';
+import '../widgets/join_requests_section.dart';
 import '../widgets/user_avatar.dart';
 
 class CommunityModerationScreen extends StatelessWidget {
@@ -31,7 +32,6 @@ class CommunityModerationScreen extends StatelessWidget {
           return ListView(
             padding: const EdgeInsets.all(12),
             children: [
-              _heading('คำขอเข้าร่วม'),
               StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                 stream: root
                     .collection('joinRequests')
@@ -40,40 +40,21 @@ class CommunityModerationScreen extends StatelessWidget {
                 builder: (context, snap) {
                   if (snap.hasError) return _error(snap.error);
                   if (!snap.hasData) return const LinearProgressIndicator();
-                  if (snap.data!.docs.isEmpty)
-                    return _empty('ไม่มีคำขอค้างอยู่');
-                  return Column(
-                    children: snap.data!.docs
+                  return JoinRequestsSection(
+                    title: 'คำขอเข้าร่วม',
+                    kindLabel: 'ชุมชน',
+                    requests: snap.data!.docs
                         .map(
-                          (request) => ListTile(
-                            leading: UserAvatar(
-                              uid: request.id,
-                              tappable: true,
-                            ),
-                            title: ProfileLink(
-                              uid: request.id,
-                              child: _name(request.id),
-                            ),
-                            subtitle: const Text('ขอเข้าร่วมชุมชน'),
-                            trailing: Wrap(
-                              children: [
-                                IconButton(
-                                  tooltip: 'ปฏิเสธ',
-                                  onPressed: () =>
-                                      service.decline(community.id, request.id),
-                                  icon: const Icon(Icons.close),
-                                ),
-                                IconButton(
-                                  tooltip: 'อนุมัติ',
-                                  onPressed: () =>
-                                      service.approve(community.id, request.id),
-                                  icon: const Icon(Icons.check_circle_outline),
-                                ),
-                              ],
-                            ),
+                          (d) => JoinRequestItem(
+                            d.id,
+                            d.data()['createdAt'] as Timestamp?,
                           ),
                         )
                         .toList(),
+                    onApprove: (id) =>
+                        service.approve(community, id, byUid: uid),
+                    onDecline: (id) =>
+                        service.decline(community, id, byUid: uid),
                   );
                 },
               ),

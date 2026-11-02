@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/community_model.dart';
+import 'notification_service.dart';
 import 'storage_service.dart';
 
 class CommunityService {
@@ -43,6 +44,12 @@ class CommunityService {
         'requesterId': uid,
         'createdAt': FieldValue.serverTimestamp(),
       });
+      await _notify(
+        community,
+        toUid: community.ownerId,
+        fromUid: uid,
+        type: NotifType.communityJoinRequest,
+      );
     } else {
       await ref.collection('members').doc(uid).set({
         'uid': uid,
@@ -58,7 +65,35 @@ class CommunityService {
       .doc(uid)
       .delete();
 
-  Future<void> approve(String communityId, String uid) async {
+  /// แจ้งเตือนที่ผูกกับชุมชน — ความล้มเหลวของแจ้งเตือนต้องไม่ทำให้ action หลักล้มเหลว
+  Future<void> _notify(
+    Community community, {
+    required String toUid,
+    required String fromUid,
+    required String type,
+    String? postId,
+    String? text,
+  }) async {
+    try {
+      await NotificationService().create(
+        toUid: toUid,
+        fromUid: fromUid,
+        type: type,
+        postId: postId,
+        text: text,
+        source: NotifSource.community,
+        sourceId: community.id,
+        sourceName: community.name,
+      );
+    } catch (_) {}
+  }
+
+  Future<void> approve(
+    Community community,
+    String uid, {
+    required String byUid,
+  }) async {
+    final communityId = community.id;
     final ref = _communities.doc(communityId);
     final batch = _db.batch();
     batch.set(ref.collection('members').doc(uid), {
@@ -68,10 +103,27 @@ class CommunityService {
     });
     batch.delete(ref.collection('joinRequests').doc(uid));
     await batch.commit();
+    await _notify(
+      community,
+      toUid: uid,
+      fromUid: byUid,
+      type: NotifType.communityJoinApproved,
+    );
   }
 
-  Future<void> decline(String communityId, String uid) =>
-      cancelRequest(communityId, uid);
+  Future<void> decline(
+    Community community,
+    String uid, {
+    required String byUid,
+  }) async {
+    await cancelRequest(community.id, uid);
+    await _notify(
+      community,
+      toUid: uid,
+      fromUid: byUid,
+      type: NotifType.communityJoinDeclined,
+    );
+  }
 
   Future<void> leave(String communityId, String uid) =>
       _communities.doc(communityId).collection('members').doc(uid).delete();
@@ -138,10 +190,12 @@ class CommunityService {
     if (!allowed.contains(type)) throw Exception('ชนิด reaction ไม่ถูกต้อง');
     final postRef = postDocument(communityId, postId);
     final reactionRef = postRef.collection('reactions').doc(uid);
+    var added = false;
     await _db.runTransaction((tx) async {
       final post = await tx.get(postRef);
       final reaction = await tx.get(reactionRef);
       final oldType = reaction.data()?['type'] as String?;
+      added = oldType != type;
       var likes = (post.data()?['likeCount'] as num?)?.toInt() ?? 0;
       var dislikes = (post.data()?['dislikeCount'] as num?)?.toInt() ?? 0;
       if (oldType == 'like') likes--;
@@ -158,6 +212,41 @@ class CommunityService {
         'dislikeCount': dislikes < 0 ? 0 : dislikes,
       });
     });
+    if (added && type != 'dislike') {
+      await _notifyPostActivity(
+        communityId: communityId,
+        postId: postId,
+        fromUid: uid,
+        type: NotifType.like,
+      );
+    }
+  }
+
+  /// แจ้งเจ้าของโพสต์ในชุมชนเมื่อมีคนกดถูกใจ/คอมเมนต์ (อ่านชื่อชุมชนและเจ้าของโพสต์เอง)
+  Future<void> _notifyPostActivity({
+    required String communityId,
+    required String postId,
+    required String fromUid,
+    required String type,
+    String? text,
+  }) async {
+    try {
+      final results = await Future.wait([
+        postDocument(communityId, postId).get(),
+        _communities.doc(communityId).get(),
+      ]);
+      final authorId = results[0].data()?['authorId'] as String? ?? '';
+      await NotificationService().create(
+        toUid: authorId,
+        fromUid: fromUid,
+        type: type,
+        postId: postId,
+        text: text,
+        source: NotifSource.community,
+        sourceId: communityId,
+        sourceName: results[1].data()?['name'] as String?,
+      );
+    } catch (_) {}
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> reactions(
@@ -178,11 +267,21 @@ class CommunityService {
     required String postId,
     required String authorId,
     required String text,
-  }) => postDocument(communityId, postId).collection('comments').add({
-    'authorId': authorId,
-    'text': text.trim(),
-    'createdAt': FieldValue.serverTimestamp(),
-  });
+  }) async {
+    final value = text.trim();
+    await postDocument(communityId, postId).collection('comments').add({
+      'authorId': authorId,
+      'text': value,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+    await _notifyPostActivity(
+      communityId: communityId,
+      postId: postId,
+      fromUid: authorId,
+      type: NotifType.comment,
+      text: value.length > 80 ? value.substring(0, 80) : value,
+    );
+  }
 
   Future<void> editComment({
     required String communityId,

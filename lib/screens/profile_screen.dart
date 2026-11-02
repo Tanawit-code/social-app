@@ -256,10 +256,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _toast('เลิกเป็นเพื่อนแล้ว');
           break;
       }
-      if (mounted)
-        setState(
-          () => _friendStatus = _friendService.state(_myUid, _targetUid),
-        );
+      if (mounted) {
+        setState(() {
+          _friendStatus = _friendService.state(_myUid, _targetUid);
+        });
+      }
     } catch (error) {
       _toast('ทำรายการไม่สำเร็จ: $error');
     } finally {

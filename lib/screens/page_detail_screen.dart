@@ -8,9 +8,10 @@ import '../models/post_model.dart';
 import '../services/storage_service.dart';
 import '../services/safety_service.dart';
 import '../utils/image_data.dart';
-import '../widgets/user_avatar.dart';
 import 'home_feed_screen.dart' show AuthorName, PostCard;
 import 'create_post_screen.dart';
+import 'members_list_screen.dart';
+import '../widgets/join_requests_section.dart';
 
 class PageDetailScreen extends StatefulWidget {
   final String pageId;
@@ -46,12 +47,17 @@ class _PageDetailScreenState extends State<PageDetailScreen> {
     }
   }
 
-  Future<void> _approve(String uid) async {
+  Future<void> _cancelRequest() async {
+    setState(() => _busy = true);
     try {
-      await _service.approveRequest(widget.pageId, _uid, uid);
-      _toast('อนุมัติสมาชิกแล้ว');
+      await _service.cancelRequest(widget.pageId, _uid);
+      _toast('ยกเลิกคำขอแล้ว');
     } catch (e) {
-      _toast(e.toString().replaceFirst('Exception: ', ''));
+      _toast(
+        'ยกเลิกคำขอไม่สำเร็จ: ${e.toString().replaceFirst('Exception: ', '')}',
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -194,10 +200,42 @@ class _PageDetailScreenState extends State<PageDetailScreen> {
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                         const Spacer(),
-                        Text(
-                          '${members.length} สมาชิก',
-                          style: const TextStyle(color: Colors.black54),
-                        ),
+                        if (canViewPosts)
+                          TextButton.icon(
+                            onPressed: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => MembersListScreen(
+                                  title: 'สมาชิก $name',
+                                  members: _service
+                                      .page(widget.pageId)
+                                      .map(
+                                        (s) =>
+                                            List<String>.from(
+                                                  s.data()?['memberIds'] ??
+                                                      const [],
+                                                )
+                                                .map(
+                                                  (u) => MemberEntry(
+                                                    u,
+                                                    u == ownerId
+                                                        ? 'owner'
+                                                        : 'member',
+                                                  ),
+                                                )
+                                                .toList(),
+                                      ),
+                                ),
+                              ),
+                            ),
+                            icon: const Icon(Icons.people_outline, size: 18),
+                            label: Text('${members.length} สมาชิก'),
+                          )
+                        else
+                          const Text(
+                            'เข้าร่วมเพื่อดูสมาชิก',
+                            style: TextStyle(color: Colors.black54),
+                          ),
                       ],
                     ),
                     if (description.isNotEmpty) ...[
@@ -215,11 +253,14 @@ class _PageDetailScreenState extends State<PageDetailScreen> {
                     if (!isMember && isPrivate) ...[
                       const SizedBox(height: 12),
                       requests.contains(_uid)
-                          ? const Chip(
-                              avatar: Icon(Icons.hourglass_top, size: 18),
-                              label: Text('รออนุมัติคำขอเข้าร่วม'),
+                          ? OutlinedButton.icon(
+                              onPressed: _busy ? null : _cancelRequest,
+                              icon: const Icon(Icons.hourglass_top, size: 18),
+                              label: const Text(
+                                'รออนุมัติ · แตะเพื่อยกเลิกคำขอ',
+                              ),
                             )
-                          : OutlinedButton.icon(
+                          : FilledButton.icon(
                               onPressed: _busy
                                   ? null
                                   : () => _join(isPrivate: true),
@@ -231,36 +272,18 @@ class _PageDetailScreenState extends State<PageDetailScreen> {
                 ),
               ),
             ),
-            if (isOwner && requests.isNotEmpty)
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'คำขอเข้าร่วม (${requests.length})',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      ...requests.map(
-                        (uid) => ListTile(
-                          dense: true,
-                          leading: UserAvatar(
-                            uid: uid,
-                            radius: 18,
-                            tappable: true,
-                          ),
-                          title: AuthorName(uid: uid, tappable: true),
-                          trailing: TextButton(
-                            onPressed: () => _approve(uid),
-                            child: const Text('อนุมัติ'),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+            if (isOwner) ...[
+              const SizedBox(height: 8),
+              JoinRequestsSection(
+                title: 'คำขอเข้าร่วมเพจ',
+                kindLabel: 'เพจ',
+                requests: requests.map((u) => JoinRequestItem(u)).toList(),
+                onApprove: (u) =>
+                    _service.approveRequest(widget.pageId, _uid, u),
+                onDecline: (u) =>
+                    _service.declineRequest(widget.pageId, _uid, u),
               ),
+            ],
             if (!canViewPosts)
               const Card(
                 child: Padding(

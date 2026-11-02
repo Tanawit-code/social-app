@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/post_model.dart';
+import 'notification_service.dart';
 
 class PostService {
   final CollectionReference<Map<String, dynamic>> _posts = FirebaseFirestore
@@ -395,11 +396,15 @@ class PostService {
   }) async {
     final postRef = _posts.doc(postId);
     final reactionRef = postRef.collection('reactions').doc(uid);
+    var added = false;
+    var authorId = '';
 
     await FirebaseFirestore.instance.runTransaction((tx) async {
       final postSnap = await tx.get(postRef);
       final reactionSnap = await tx.get(reactionRef);
       final oldType = reactionSnap.data()?['type'] as String?;
+      added = oldType != type;
+      authorId = postSnap.data()?['authorId'] as String? ?? '';
       var likeCount = (postSnap.data()?['likeCount'] as num?)?.toInt() ?? 0;
       var dislikeCount =
           (postSnap.data()?['dislikeCount'] as num?)?.toInt() ?? 0;
@@ -421,6 +426,16 @@ class PostService {
         'dislikeCount': dislikeCount < 0 ? 0 : dislikeCount,
       });
     });
+    if (added && type != 'dislike') {
+      try {
+        await NotificationService().create(
+          toUid: authorId,
+          fromUid: uid,
+          type: NotifType.like,
+          postId: postId,
+        );
+      } catch (_) {}
+    }
   }
 
   /// à¸„à¸­à¸¡à¹€à¸¡à¸™à¸•à¹Œ
@@ -428,12 +443,22 @@ class PostService {
     required String postId,
     required String authorId,
     required String text,
-  }) {
-    return _posts.doc(postId).collection('comments').add({
+  }) async {
+    await _posts.doc(postId).collection('comments').add({
       'authorId': authorId,
       'text': text,
       'createdAt': FieldValue.serverTimestamp(),
     });
+    try {
+      final post = await _posts.doc(postId).get();
+      await NotificationService().create(
+        toUid: post.data()?['authorId'] as String? ?? '',
+        fromUid: authorId,
+        type: NotifType.comment,
+        postId: postId,
+        text: text.length > 80 ? text.substring(0, 80) : text,
+      );
+    } catch (_) {}
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> commentsStream(String postId) {

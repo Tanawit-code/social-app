@@ -16,6 +16,7 @@ import '../widgets/post_media.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/text_controller_scope.dart';
 import 'community_moderation_screen.dart';
+import 'members_list_screen.dart';
 
 class CommunityDetailScreen extends StatefulWidget {
   final Community community;
@@ -346,13 +347,43 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
                               : 'ชุมชนสาธารณะ',
                         ),
                         const Spacer(),
-                        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                          stream: communityRef
-                              .collection('members')
-                              .snapshots(),
-                          builder: (context, snap) =>
-                              Text('${snap.data?.size ?? 0} สมาชิก'),
-                        ),
+                        if (!isMember && widget.community.privacy == 'private')
+                          const Text(
+                            'เข้าร่วมเพื่อดูสมาชิก',
+                            style: TextStyle(color: Colors.black54),
+                          )
+                        else
+                          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                            stream: communityRef
+                                .collection('members')
+                                .snapshots(),
+                            builder: (context, snap) => TextButton.icon(
+                              onPressed: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => MembersListScreen(
+                                    title: 'สมาชิก ${widget.community.name}',
+                                    members: communityRef
+                                        .collection('members')
+                                        .snapshots()
+                                        .map(
+                                          (s) => s.docs
+                                              .map(
+                                                (d) => MemberEntry(
+                                                  d.id,
+                                                  d.data()['role'] as String? ??
+                                                      'member',
+                                                ),
+                                              )
+                                              .toList(),
+                                        ),
+                                  ),
+                                ),
+                              ),
+                              icon: const Icon(Icons.people_outline, size: 18),
+                              label: Text('${snap.data?.size ?? 0} สมาชิก'),
+                            ),
+                          ),
                       ],
                     ),
                     if (widget.community.description.isNotEmpty)
