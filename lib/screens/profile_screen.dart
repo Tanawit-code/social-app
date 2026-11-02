@@ -9,6 +9,7 @@ import '../services/follow_service.dart';
 import '../services/storage_service.dart';
 import '../services/safety_service.dart';
 import '../services/post_service.dart';
+import '../services/community_service.dart';
 import '../services/friend_service.dart';
 import '../services/profile_posts_service.dart';
 import '../widgets/user_avatar.dart';
@@ -18,7 +19,12 @@ import 'chat_screen.dart';
 import 'privacy_settings_screen.dart';
 import 'account_settings_screen.dart';
 import 'home_feed_screen.dart'
-    show AuthorName, EditPostDialog, formatRelativeTime, invalidateAuthorName;
+    show
+        AuthorName,
+        EditPostDialog,
+        SharedPostPreview,
+        formatRelativeTime,
+        invalidateAuthorName;
 
 /// โปรไฟล์ — ไม่ส่ง uid = โปรไฟล์ของตัวเอง (แก้ไขได้)
 /// ส่ง uid ของคนอื่น = ดูโปรไฟล์ + ติดตาม/เลิกติดตาม + ส่งข้อความ
@@ -192,6 +198,41 @@ class _ProfileScreenState extends State<ProfileScreen> {
       builder: (_) => EditPostDialog(post: post, postService: _postService),
     );
     if (saved == true) _toast('บันทึกการแก้ไขโพสต์แล้ว');
+  }
+
+  /// ลบโพสต์ของตัวเองจากหน้าโปรไฟล์ (โพสต์ส่วนตัว/เพจ อยู่ใน posts, โพสต์ชุมชนอยู่ใต้ communities)
+  Future<void> _deletePost(ProfilePost item) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('ลบโพสต์นี้?'),
+        content: const Text(
+          'ลบแล้วจะไม่สามารถกู้คืนได้ รวมถึงคอมเมนต์และปฏิกิริยาทั้งหมดในโพสต์นี้',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('ยกเลิก'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('ลบ'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      if (item.source == ProfilePostSource.community && item.sourceId != null) {
+        await CommunityService().deletePost(item.sourceId!, item.post.id);
+      } else {
+        await _postService.deletePost(item.post.id);
+      }
+      _toast('ลบโพสต์แล้ว');
+    } catch (e) {
+      _toast('ลบโพสต์ไม่สำเร็จ: $e');
+    }
   }
 
   Future<void> _performFriendAction(FriendRequestState status) async {
@@ -905,6 +946,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   item: p,
                   canEdit: _isMe && p.source != ProfilePostSource.community,
                   onEdit: () => _editPost(p.post),
+                  canDelete: _isMe,
+                  onDelete: () => _deletePost(p),
                 ),
               )
               .toList(),
@@ -1137,10 +1180,14 @@ class _PostTile extends StatelessWidget {
   final ProfilePost item;
   final bool canEdit;
   final VoidCallback onEdit;
+  final bool canDelete;
+  final VoidCallback onDelete;
   const _PostTile({
     required this.item,
     required this.canEdit,
     required this.onEdit,
+    required this.canDelete,
+    required this.onDelete,
   });
 
   Post get post => item.post;
@@ -1253,13 +1300,58 @@ class _PostTile extends StatelessWidget {
                     onPressed: onEdit,
                     icon: const Icon(Icons.edit_outlined),
                   ),
+                if (canDelete)
+                  PopupMenuButton<String>(
+                    onSelected: (v) {
+                      if (v == 'delete') onDelete();
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(
+                        value: 'delete',
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.delete_outline,
+                              color: Colors.red,
+                              size: 18,
+                            ),
+                            SizedBox(width: 8),
+                            Text(
+                              'ลบโพสต์',
+                              style: TextStyle(color: Colors.red),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
               ],
             ),
             if (inGroup) _sourceLine(),
+            if (post.sharedPostId != null) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Icon(Icons.repeat, size: 15, color: Colors.black54),
+                  const SizedBox(width: 5),
+                  const Text(
+                    'แชร์โพสต์จาก ',
+                    style: TextStyle(fontSize: 12, color: Colors.black54),
+                  ),
+                  if (post.sharedAuthorId != null)
+                    AuthorName(
+                      tappable: true,
+                      uid: post.sharedAuthorId!,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                ],
+              ),
+            ],
             if (post.content.isNotEmpty) ...[
               const SizedBox(height: 10),
               Text(post.content, style: const TextStyle(fontSize: 15)),
             ],
+            if (post.sharedPostId != null) SharedPostPreview(post: post),
             if (post.mediaUrl != null) ...[
               const SizedBox(height: 10),
               ClipRRect(

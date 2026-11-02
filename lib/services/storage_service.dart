@@ -56,6 +56,56 @@ class StorageService {
     ];
   }
 
+  /// แชท: 1 ข้อความมีได้หลายรูป (อยู่ในเอกสาร Firestore เดียว จำกัด 1 MiB)
+  /// ถ้าเลือกมากกว่านี้ [splitChatImages] จะแบ่งเป็นหลายข้อความให้อัตโนมัติ
+  static const maxChatImagesPerMessage = 6;
+  static const _maxChatTotalBytes = 640 * 1024;
+
+  /// คืนข้อความผิดพลาด (ภาษาไทย) ถ้ามีรูปใดใหญ่เกินกว่าจะส่งในแชทได้ ไม่งั้นคืน null
+  static String? validateChatImages(List<Uint8List> images) {
+    for (var i = 0; i < images.length; i++) {
+      final size = images[i].length;
+      if (size > _maxChatBytes) {
+        return 'รูปที่ ${i + 1} ใหญ่เกินไป (${size ~/ 1024} KB, ไม่เกิน '
+            '${_maxChatBytes ~/ 1024} KB) กรุณาเลือกรูปอื่นที่เล็กกว่านี้';
+      }
+    }
+    return null;
+  }
+
+  /// แบ่งรูปเป็นชุดๆ ชุดละไม่เกิน [maxChatImagesPerMessage] รูป และขนาดรวมไม่เกินที่เอกสารรับได้
+  /// (1 ชุด = 1 ข้อความ) คงลำดับที่เลือกไว้
+  static List<List<Uint8List>> splitChatImages(List<Uint8List> images) {
+    final batches = <List<Uint8List>>[];
+    var current = <Uint8List>[];
+    var total = 0;
+    for (final image in images) {
+      final full =
+          current.length >= maxChatImagesPerMessage ||
+          (current.isNotEmpty && total + image.length > _maxChatTotalBytes);
+      if (full) {
+        batches.add(current);
+        current = <Uint8List>[];
+        total = 0;
+      }
+      current.add(image);
+      total += image.length;
+    }
+    if (current.isNotEmpty) batches.add(current);
+    return batches;
+  }
+
+  Future<List<String>> uploadChatImagesBytes({
+    required List<Uint8List> images,
+    required String uid,
+  }) async {
+    final error = validateChatImages(images);
+    if (error != null) throw Exception(error);
+    return [
+      for (final bytes in images) _encode(bytes, _maxChatBytes, 'รูปแชท'),
+    ];
+  }
+
   Future<String> uploadChatImageBytes({
     required Uint8List bytes,
     required String uid,

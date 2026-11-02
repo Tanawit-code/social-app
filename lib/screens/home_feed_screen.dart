@@ -770,7 +770,7 @@ class _PostCardState extends State<PostCard> {
                   ),
                 if (post.content.isNotEmpty)
                   Text(post.content, style: const TextStyle(fontSize: 15)),
-                if (post.sharedPostId != null) _SharedPostPreview(post: post),
+                if (post.sharedPostId != null) SharedPostPreview(post: post),
                 if (post.mediaUrl != null) ...[
                   const SizedBox(height: 8),
                   ClipRRect(
@@ -1149,9 +1149,10 @@ class _ReshareDialogState extends State<_ReshareDialog> {
   );
 }
 
-class _SharedPostPreview extends StatelessWidget {
+/// กล่องแสดงโพสต์ต้นฉบับที่ถูกแชร์ (ใช้ทั้งในฟีดและหน้าโปรไฟล์)
+class SharedPostPreview extends StatelessWidget {
   final Post post;
-  const _SharedPostPreview({required this.post});
+  const SharedPostPreview({required this.post, super.key});
 
   @override
   Widget build(BuildContext context) => Container(

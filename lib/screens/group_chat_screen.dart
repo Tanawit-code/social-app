@@ -10,6 +10,8 @@ import '../services/notification_service.dart';
 import '../utils/image_data.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/chat_actions.dart';
+import '../widgets/chat_media.dart';
+import '../services/chat_media_service.dart';
 import 'add_group_members_screen.dart';
 import 'home_feed_screen.dart' show AuthorName;
 
@@ -23,6 +25,7 @@ class GroupChatScreen extends StatefulWidget {
 class _GroupChatScreenState extends State<GroupChatScreen> {
   final _text = TextEditingController();
   final _uid = AuthService().currentUser?.uid ?? '';
+  final _media = ChatMediaService();
   bool _sending = false;
   bool _hasText = false;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _readSubscription;
@@ -514,27 +517,45 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     }
   }
 
-  Future<void> _sendImage() async {
+  String _errorText(Object e) => e.toString().replaceFirst('Exception: ', '');
+
+  /// เลือกหลายรูปแล้วส่ง (ถ้ารูปเยอะจนใส่ข้อความเดียวไม่ได้ จะแบ่งเป็นหลายข้อความให้)
+  Future<void> _sendImages() async {
+    if (_sending) return;
     try {
-      final picked = await ImagePicker().pickImage(
-        source: ImageSource.gallery,
-        imageQuality: 55,
-        maxWidth: 720,
-        maxHeight: 720,
-      );
-      if (picked == null) return;
-      final bytes = await picked.readAsBytes();
-      final url = await StorageService().uploadChatImageBytes(
-        bytes: bytes,
-        uid: _uid,
-      );
+      final batches = await _media.pickImageBatches(_uid);
+      if (batches == null) return;
+      setState(() => _sending = true);
+      for (final urls in batches) {
+        await ChatService().sendGroup(
+          groupId: widget.groupId,
+          fromUid: _uid,
+          imageUrl: urls.first,
+          moreImageUrls: urls.sublist(1),
+        );
+      }
+    } catch (e) {
+      _toast('ส่งรูปไม่สำเร็จ: ${_errorText(e)}');
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  Future<void> _sendVideo() async {
+    if (_sending) return;
+    try {
+      setState(() => _sending = true);
+      final url = await _media.pickAndUploadVideo();
+      if (url == null) return;
       await ChatService().sendGroup(
         groupId: widget.groupId,
         fromUid: _uid,
-        imageUrl: url,
+        videoUrl: url,
       );
     } catch (e) {
-      _toast('ส่งรูปไม่สำเร็จ: $e');
+      _toast('ส่งวิดีโอไม่สำเร็จ: ${_errorText(e)}');
+    } finally {
+      if (mounted) setState(() => _sending = false);
     }
   }
 
@@ -697,7 +718,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                             final canDelete =
                                 !deleted && (mine || group['ownerId'] == _uid);
                             final sender = (msg['senderId'] ?? '') as String;
-                            final image = msg['imageUrl'] as String?;
+                            final hasMedia = ChatMessageMedia.hasMedia(msg);
                             final text = (msg['text'] ?? '') as String;
                             final time = _timeLabel(
                               msg['createdAt'] as Timestamp?,
@@ -712,15 +733,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                                       color: Colors.black45,
                                     ),
                                   )
-                                : image != null
-                                ? ClipRRect(
-                                    borderRadius: BorderRadius.circular(17),
-                                    child: AppImage(
-                                      src: image,
-                                      width: 220,
-                                      height: 180,
-                                    ),
-                                  )
+                                : hasMedia
+                                ? ChatMessageMedia(data: msg)
                                 : isLike
                                 ? const Text(
                                     '\u{1F44D}',
@@ -772,7 +786,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                                             margin: const EdgeInsets.only(
                                               top: 2,
                                             ),
-                                            padding: image == null && !isLike
+                                            padding: !hasMedia && !isLike
                                                 ? const EdgeInsets.symmetric(
                                                     horizontal: 13,
                                                     vertical: 9,
@@ -788,7 +802,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                                                           17,
                                                         ),
                                                   )
-                                                : isLike || image != null
+                                                : isLike || hasMedia
                                                 ? null
                                                 : BoxDecoration(
                                                     color: mine
@@ -840,9 +854,17 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                   child: Row(
                     children: [
                       IconButton(
-                        tooltip: 'ส่งรูป',
-                        onPressed: _sending ? null : _sendImage,
+                        tooltip: 'ส่งรูป (เลือกได้หลายรูป)',
+                        onPressed: _sending ? null : _sendImages,
                         icon: const Icon(Icons.image, color: Color(0xFF0084FF)),
+                      ),
+                      IconButton(
+                        tooltip: 'ส่งวิดีโอ',
+                        onPressed: _sending ? null : _sendVideo,
+                        icon: const Icon(
+                          Icons.videocam,
+                          color: Color(0xFF0084FF),
+                        ),
                       ),
                       Expanded(
                         child: TextField(

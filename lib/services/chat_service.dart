@@ -294,13 +294,41 @@ class ChatService {
     await ref.update(data);
   }
 
+  /// ตัวอย่างข้อความล่าสุดในรายการแชท (ข้อความ / รูป / วิดีโอ)
+  static String _preview({
+    String? text,
+    String? imageUrl,
+    List<String> moreImageUrls = const [],
+    String? videoUrl,
+  }) {
+    if (videoUrl != null) return '🎬 วิดีโอ';
+    if (imageUrl != null) {
+      final count = 1 + moreImageUrls.length;
+      return count > 1 ? '📷 รูปภาพ $count รูป' : '📷 รูปภาพ';
+    }
+    return text!;
+  }
+
+  /// ฟิลด์สื่อของข้อความ: imageUrl = รูปแรก, moreImageUrls = รูปที่เหลือ, videoUrl = วิดีโอ
+  static Map<String, dynamic> _mediaFields({
+    String? imageUrl,
+    List<String> moreImageUrls = const [],
+    String? videoUrl,
+  }) => {
+    'imageUrl': imageUrl,
+    if (moreImageUrls.isNotEmpty) 'moreImageUrls': moreImageUrls,
+    if (videoUrl != null) 'videoUrl': videoUrl,
+  };
+
   Future<void> sendGroup({
     required String groupId,
     required String fromUid,
     String? text,
     String? imageUrl,
+    List<String> moreImageUrls = const [],
+    String? videoUrl,
   }) async {
-    assert(text != null || imageUrl != null);
+    assert(text != null || imageUrl != null || videoUrl != null);
     final ref = _db.collection('chats').doc(groupId);
     final group = await ref.get();
     final data = group.data();
@@ -310,7 +338,12 @@ class ChatService {
         !participants.contains(fromUid)) {
       throw Exception('คุณไม่ใช่สมาชิกของกลุ่มนี้');
     }
-    final preview = imageUrl != null ? '📷 รูปภาพ' : text!;
+    final preview = _preview(
+      text: text,
+      imageUrl: imageUrl,
+      moreImageUrls: moreImageUrls,
+      videoUrl: videoUrl,
+    );
     await ref.update({
       'lastMessage': preview,
       'lastAt': FieldValue.serverTimestamp(),
@@ -318,7 +351,11 @@ class ChatService {
     await ref.collection('messages').add({
       'senderId': fromUid,
       'text': text,
-      'imageUrl': imageUrl,
+      ..._mediaFields(
+        imageUrl: imageUrl,
+        moreImageUrls: moreImageUrls,
+        videoUrl: videoUrl,
+      ),
       'createdAt': FieldValue.serverTimestamp(),
     });
     for (final uid in participants.where((uid) => uid != fromUid)) {
@@ -349,6 +386,9 @@ class ChatService {
       'deleted': true,
       'text': null,
       'imageUrl': null,
+      // ลบฟิลด์สื่อรุ่นใหม่ด้วย (ถ้าข้อความไม่มีฟิลด์นี้ จะไม่มีอะไรเปลี่ยน)
+      'moreImageUrls': FieldValue.delete(),
+      'videoUrl': FieldValue.delete(),
     });
     try {
       // ถ้าข้อความที่ลบเป็นข้อความล่าสุด ให้รายการแชทแสดง "ข้อความถูกลบ" ด้วย
@@ -370,10 +410,17 @@ class ChatService {
     required String toUid,
     String? text,
     String? imageUrl,
+    List<String> moreImageUrls = const [],
+    String? videoUrl,
   }) async {
-    assert(text != null || imageUrl != null);
+    assert(text != null || imageUrl != null || videoUrl != null);
     final ref = _db.collection('chats').doc(chatId(fromUid, toUid));
-    final preview = imageUrl != null ? '📷 รูปภาพ' : text!;
+    final preview = _preview(
+      text: text,
+      imageUrl: imageUrl,
+      moreImageUrls: moreImageUrls,
+      videoUrl: videoUrl,
+    );
 
     // ห้องถูกสร้างแล้วโดย ensureDirectChat; ห้ามแตะ participants (rules บังคับว่าต้องเหมือนเดิมและเรียงเดิม)
     await ensureDirectChat(fromUid, toUid);
@@ -385,7 +432,11 @@ class ChatService {
     await ref.collection('messages').add({
       'senderId': fromUid,
       'text': text,
-      'imageUrl': imageUrl,
+      ..._mediaFields(
+        imageUrl: imageUrl,
+        moreImageUrls: moreImageUrls,
+        videoUrl: videoUrl,
+      ),
       'createdAt': FieldValue.serverTimestamp(),
     });
 

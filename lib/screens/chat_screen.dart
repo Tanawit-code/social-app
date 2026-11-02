@@ -1,15 +1,14 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import '../services/auth_service.dart';
 import '../services/chat_service.dart';
 import '../services/safety_service.dart';
-import '../services/storage_service.dart';
+import '../services/chat_media_service.dart';
 import '../services/notification_service.dart';
-import '../utils/image_data.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/chat_actions.dart';
+import '../widgets/chat_media.dart';
 import 'home_feed_screen.dart' show AuthorName;
 
 const _messengerBlue = Color(0xFF0084FF);
@@ -25,11 +24,8 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  static const _maxImageBytes = 5 * 1024 * 1024;
-
   final _chat = ChatService();
-  final _storage = StorageService();
-  final _picker = ImagePicker();
+  final _media = ChatMediaService();
   final _controller = TextEditingController();
   final _myUid = AuthService().currentUser?.uid ?? '';
   // รอสถานะ "ลบประวัติแชท" ก่อนค่อยเริ่มโหลดข้อความ (กันข้อความเก่าแวบขึ้นมา)
@@ -113,30 +109,40 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  Future<void> _sendImage() async {
+  String _errorText(Object e) => e.toString().replaceFirst('Exception: ', '');
+
+  /// เลือกหลายรูปแล้วส่ง (ถ้ารูปเยอะจนใส่ข้อความเดียวไม่ได้ จะแบ่งเป็นหลายข้อความให้)
+  Future<void> _sendImages() async {
+    if (_sending) return;
     try {
-      final picked = await _picker.pickImage(
-        source: ImageSource.gallery,
-        imageQuality: 60,
-        maxWidth: 480,
-        maxHeight: 480,
-      );
-      if (picked == null) return;
-      final bytes = await picked.readAsBytes();
-      if (bytes.length > _maxImageBytes) {
-        _toast('รูปใหญ่เกิน 5 MB');
-        return;
-      }
+      final batches = await _media.pickImageBatches(_myUid);
+      if (batches == null) return;
       setState(() => _sending = true);
-      final url = await _storage.uploadChatImageBytes(
-        bytes: bytes,
-        uid: _myUid,
-      );
-      await _chat.send(fromUid: _myUid, toUid: widget.peerUid, imageUrl: url);
+      for (final urls in batches) {
+        await _chat.send(
+          fromUid: _myUid,
+          toUid: widget.peerUid,
+          imageUrl: urls.first,
+          moreImageUrls: urls.sublist(1),
+        );
+      }
     } catch (e) {
-      _toast(
-        'ส่งรูปไม่สำเร็จ: ${e.toString().replaceFirst('Exception: ', '')}',
-      );
+      _toast('ส่งรูปไม่สำเร็จ: ${_errorText(e)}');
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  Future<void> _sendVideo() async {
+    if (_sending) return;
+    try {
+      // เลือกไฟล์ก่อน แล้วค่อยแสดงแถบกำลังอัปโหลด
+      setState(() => _sending = true);
+      final url = await _media.pickAndUploadVideo();
+      if (url == null) return;
+      await _chat.send(fromUid: _myUid, toUid: widget.peerUid, videoUrl: url);
+    } catch (e) {
+      _toast('ส่งวิดีโอไม่สำเร็จ: ${_errorText(e)}');
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -254,9 +260,14 @@ class _ChatScreenState extends State<ChatScreen> {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   IconButton(
-                    tooltip: 'ส่งรูปภาพ',
+                    tooltip: 'ส่งรูปภาพ (เลือกได้หลายรูป)',
                     icon: const Icon(Icons.image, color: _messengerBlue),
-                    onPressed: _sending ? null : _sendImage,
+                    onPressed: _sending ? null : _sendImages,
+                  ),
+                  IconButton(
+                    tooltip: 'ส่งวิดีโอ',
+                    icon: const Icon(Icons.videocam, color: _messengerBlue),
+                    onPressed: _sending ? null : _sendVideo,
                   ),
                   Expanded(
                     child: TextField(
@@ -381,36 +392,6 @@ class _MessageRow extends StatelessWidget {
     required this.peerUid,
   });
 
-  void _openImage(BuildContext context, String src) {
-    showDialog(
-      context: context,
-      builder: (_) => Dialog(
-        backgroundColor: Colors.black,
-        insetPadding: EdgeInsets.zero,
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: InteractiveViewer(
-                child: Center(
-                  child: AppImage(src: src, fit: BoxFit.contain),
-                ),
-              ),
-            ),
-            Positioned(
-              top: 8,
-              right: 8,
-              child: IconButton(
-                tooltip: 'ปิด',
-                icon: const Icon(Icons.close, color: Colors.white),
-                onPressed: () => Navigator.pop(context),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Future<void> _deleteMessage(BuildContext context) async {
     final ok = await showDialog<bool>(
       context: context,
@@ -488,7 +469,7 @@ class _MessageRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final imageUrl = data['imageUrl'] as String?;
+    final hasMedia = ChatMessageMedia.hasMedia(data);
     final text = (data['text'] ?? '') as String;
     final maxW = MediaQuery.of(context).size.width * 0.72;
 
@@ -520,13 +501,10 @@ class _MessageRow extends StatelessWidget {
           ),
         ),
       );
-    } else if (imageUrl != null && imageUrl.isNotEmpty) {
-      content = GestureDetector(
-        onTap: () => _openImage(context, imageUrl),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(18),
-          child: AppImage(src: imageUrl, width: 220, fit: BoxFit.cover),
-        ),
+    } else if (hasMedia) {
+      content = ChatMessageMedia(
+        data: data,
+        width: maxW.clamp(0.0, 260.0).toDouble(),
       );
     } else if (text == '👍') {
       content = const Text('👍', style: TextStyle(fontSize: 38));

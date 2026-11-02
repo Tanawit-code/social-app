@@ -241,6 +241,20 @@ service cloud.firestore {
         // ถ้ายกเลิกรีแอคชัน (ลบเอกสาร) หลังเขียนเสร็จจะไม่มีเอกสารนี้ -> ถือว่าไม่มีรีแอคชัน
         return existsAfter(reactionPath(request.auth.uid)) ? getAfter(reactionPath(request.auth.uid)).data.type : null;
       }
+      // ยอดใหม่ = ยอดเดิม + (รีแอกชันหลังเขียนเป็นชนิดนี้) - (รีแอกชันก่อนเขียนเป็นชนิดนี้)
+      // ติดศูนย์ไม่ติดลบ (ตรงกับที่แอปปัดค่าติดลบเป็น 0) กันยอดเพี้ยนในข้อมูลเก่าแล้วยกเลิกรีแอกชันไม่ได้
+            function nextCount(current, type, prev, next) {
+        let n = current
+          + (next == type ? 1 : 0)
+          - (prev == type ? 1 : 0);
+        return n < 0 ? 0 : n;
+      }
+      function validReactionCounts() {
+        let prev = previousReactionType();
+        let next = resultingReactionType();
+        return request.resource.data.likeCount == nextCount(resource.data.likeCount, 'like', prev, next)
+          && request.resource.data.dislikeCount == nextCount(resource.data.dislikeCount, 'dislike', prev, next);
+      }
       function validSharedPostSource(original) {
         return original.get('sharedPostId', null) == null
           && canViewPostBase(original)
@@ -273,25 +287,23 @@ service cloud.firestore {
         && request.resource.data.createdAt == request.time && request.resource.data.likeCount == 0 && request.resource.data.dislikeCount == 0
         && (request.resource.data.get('pageId', null) == null
           || get(/databases/$(database)/documents/pages/$(request.resource.data.pageId)).data.memberIds.hasAny([request.auth.uid]));
-      allow update: if signedIn() && canViewPost(resource.data)
-        && ((resource.data.authorId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['content', 'audience'])
+      // รีแอกชัน/คอมเมนต์ตรวจแค่สิทธิ์ดูโพสต์นี้เอง (canViewPostBase) ไม่ตรวจโพสต์ต้นฉบับของโพสต์แชร์ซ้ำ
+      // เพราะสำเนาเนื้อหาต้นฉบับอยู่ในโพสต์แชร์อยู่แล้ว และการตรวจต้นฉบับทำให้เรียก get/exists เพิ่มจนเกินโควตา
+      // หรือถูกปฏิเสธเมื่อต้นฉบับถูกลบ/ซ่อน ทั้งที่โพสต์แชร์ยังแสดงอยู่
+      allow update: if signedIn()
+        && ((resource.data.authorId == request.auth.uid && canViewPost(resource.data) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['content', 'audience'])
             && request.resource.data.get('audience', 'public') in ['public', 'friends', 'private']
             && request.resource.data.content is string && request.resource.data.content.size() <= 10000)
-          || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likeCount', 'dislikeCount'])
+          || (canViewPostBase(resource.data) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likeCount', 'dislikeCount'])
             && request.resource.data.likeCount is int && request.resource.data.dislikeCount is int
             && request.resource.data.likeCount >= 0 && request.resource.data.dislikeCount >= 0
-            && request.resource.data.likeCount == resource.data.likeCount
-              + (resultingReactionType() == 'like' ? 1 : 0)
-              - (previousReactionType() == 'like' ? 1 : 0)
-            && request.resource.data.dislikeCount == resource.data.dislikeCount
-              + (resultingReactionType() == 'dislike' ? 1 : 0)
-              - (previousReactionType() == 'dislike' ? 1 : 0)));
+            && validReactionCounts()));
       allow delete: if signedIn() && resource.data.authorId == request.auth.uid;
 
       match /comments/{commentId} {
         function parentPost() { return get(/databases/$(database)/documents/posts/$(postId)).data; }
-        allow read: if canViewPost(parentPost());
-        allow create: if signedIn() && canViewPost(parentPost())
+        allow read: if canViewPostBase(parentPost());
+        allow create: if signedIn() && canViewPostBase(parentPost())
           && request.resource.data.keys().hasOnly(['authorId', 'text', 'createdAt'])
           && request.resource.data.authorId == request.auth.uid && request.resource.data.text is string
           && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000
@@ -303,8 +315,8 @@ service cloud.firestore {
       }
       match /reactions/{uid} {
         function parentPost() { return get(/databases/$(database)/documents/posts/$(postId)).data; }
-        allow read: if canViewPost(parentPost());
-        allow create, update: if self(uid) && canViewPost(parentPost())
+        allow read: if canViewPostBase(parentPost());
+        allow create, update: if self(uid) && canViewPostBase(parentPost())
           && request.resource.data.keys().hasOnly(['type']) && request.resource.data.type is string && request.resource.data.type.size() <= 32;
         allow delete: if self(uid) || parentPost().authorId == request.auth.uid;
       }
@@ -601,21 +613,30 @@ service cloud.firestore {
           && (parentChat().participants.size() > 2 || !blockedEitherWay(request.auth.uid, peer()));
         allow create: if signedIn() && parentChat().participants.hasAny([request.auth.uid])
           && request.resource.data.senderId == request.auth.uid
-          && request.resource.data.keys().hasOnly(['senderId', 'text', 'imageUrl', 'createdAt'])
+          && request.resource.data.keys().hasOnly(['senderId', 'text', 'imageUrl', 'moreImageUrls', 'videoUrl', 'createdAt'])
           && request.resource.data.createdAt == request.time
           && (request.resource.data.get('text', null) == null
             || (request.resource.data.text is string && request.resource.data.text.size() <= 4000))
           && (request.resource.data.get('imageUrl', null) == null
             || (request.resource.data.imageUrl is string && request.resource.data.imageUrl.size() <= 300000))
+          && (request.resource.data.get('moreImageUrls', null) == null
+            || (request.resource.data.moreImageUrls is list && request.resource.data.moreImageUrls.size() <= 9
+              && request.resource.data.get('imageUrl', null) != null))
+          && (request.resource.data.get('videoUrl', null) == null
+            || (request.resource.data.videoUrl is string && request.resource.data.videoUrl.size() <= 600
+              && request.resource.data.videoUrl.matches('https://.*')))
           && ((request.resource.data.get('text', '') is string && request.resource.data.get('text', '').size() > 0)
-            || (request.resource.data.get('imageUrl', '') is string && request.resource.data.get('imageUrl', '').size() > 0))
+            || (request.resource.data.get('imageUrl', '') is string && request.resource.data.get('imageUrl', '').size() > 0)
+            || (request.resource.data.get('videoUrl', '') is string && request.resource.data.get('videoUrl', '').size() > 0))
           && (parentChat().participants.size() > 2 || !blockedEitherWay(request.auth.uid, peer()));
         // ลบข้อความ = soft-delete เท่านั้น (ล้าง text/imageUrl + deleted: true) แก้เนื้อหาอย่างอื่นไม่ได้
         allow update: if signedIn() && (resource.data.senderId == request.auth.uid || parentChat().ownerId == request.auth.uid)
           && request.resource.data.deleted == true
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'imageUrl', 'deleted'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'imageUrl', 'moreImageUrls', 'videoUrl', 'deleted'])
           && request.resource.data.get('text', null) == null
-          && request.resource.data.get('imageUrl', null) == null;
+          && request.resource.data.get('imageUrl', null) == null
+          && request.resource.data.get('moreImageUrls', null) == null
+          && request.resource.data.get('videoUrl', null) == null;
         allow delete: if signedIn() && (resource.data.senderId == request.auth.uid || parentChat().ownerId == request.auth.uid);
       }
     }

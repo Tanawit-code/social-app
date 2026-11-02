@@ -369,6 +369,57 @@ describe('รีแอคชันโพสต์ (เขียนรีแอ�
     const db = asUser('bob');
     await assertFails(setDoc(doc(db, 'posts/p1/reactions/carol'), { type: 'like' }));
   });
+
+  describe('โพสต์ที่แชร์มา (มีโพสต์ต้นฉบับของอีกคนซ้อนอยู่)', () => {
+    // carol เป็นเจ้าของโพสต์ต้นฉบับ, alice แชร์ต่อเป็น shared1, bob เป็นคนกดรีแอคชัน
+    async function seedShared(extra = {}) {
+      await seedPost('orig', 'carol');
+      await seedPost('shared1', 'alice', {
+        content: 'แชร์ต่อ',
+        sharedPostId: 'orig',
+        sharedAuthorId: 'carol',
+        sharedContent: 'โพสต์ทดสอบ',
+        ...extra,
+      });
+    }
+
+    async function reactShared({ set, remove, counts }) {
+      const db = asUser('bob');
+      const batch = writeBatch(db);
+      if (set) batch.set(doc(db, 'posts/shared1/reactions/bob'), { type: set });
+      if (remove) batch.delete(doc(db, 'posts/shared1/reactions/bob'));
+      batch.update(doc(db, 'posts/shared1'), counts);
+      return batch.commit();
+    }
+
+    it('กดไลก์โพสต์ที่แชร์มาได้', async () => {
+      await seedShared();
+      await assertSucceeds(reactShared({ set: 'like', counts: { likeCount: 1, dislikeCount: 0 } }));
+    });
+
+    it('[บั๊กที่เจอ] กดไลก์ซ้ำเพื่อยกเลิกบนโพสต์ที่แชร์มาได้', async () => {
+      await seedShared({ likeCount: 1 });
+      await seed((db) => setDoc(doc(db, 'posts/shared1/reactions/bob'), { type: 'like' }));
+      await assertSucceeds(reactShared({ remove: true, counts: { likeCount: 0, dislikeCount: 0 } }));
+    });
+
+    it('เปลี่ยนไลก์เป็นอีโมจิอื่นบนโพสต์ที่แชร์มาได้', async () => {
+      await seedShared({ likeCount: 1 });
+      await seed((db) => setDoc(doc(db, 'posts/shared1/reactions/bob'), { type: 'like' }));
+      await assertSucceeds(reactShared({ set: 'love', counts: { likeCount: 0, dislikeCount: 0 } }));
+    });
+
+    it('ยกเลิกรีแอคชันบนโพสต์ที่แชร์มาแต่ไม่ลดยอดไม่ได้', async () => {
+      await seedShared({ likeCount: 1 });
+      await seed((db) => setDoc(doc(db, 'posts/shared1/reactions/bob'), { type: 'like' }));
+      await assertFails(reactShared({ remove: true, counts: { likeCount: 1, dislikeCount: 0 } }));
+    });
+
+    it('เจ้าของโพสต์ที่แชร์ แก้คำบรรยายของตัวเองได้', async () => {
+      await seedShared();
+      await assertSucceeds(updateDoc(doc(asUser('alice'), 'posts/shared1'), { content: 'แก้คำบรรยาย' }));
+    });
+  });
 });
 
 // ======================================================================
