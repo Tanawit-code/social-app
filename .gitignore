@@ -44,3 +44,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+/rules-tests/node_modules/
+/functions/node_modules/
