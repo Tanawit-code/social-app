@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'dart:typed_data';
 import 'package:image_picker/image_picker.dart';
 import '../models/community_model.dart';
+import '../models/post_model.dart';
 import '../services/auth_service.dart';
 import '../services/community_service.dart';
 import '../services/storage_service.dart';
@@ -27,7 +28,7 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
   final _uid = AuthService().currentUser?.uid ?? '';
   final _service = CommunityService();
   final _text = TextEditingController();
-  Uint8List? _imageBytes;
+  final List<Uint8List> _images = []; // เลือกได้หลายรูป (สูงสุด maxPostImages)
   Uint8List? _videoBytes;
   String? _videoName;
   bool _busy = false;
@@ -62,17 +63,21 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
   }
 
   Future<void> _post() async {
-    if (_text.text.trim().isEmpty && _imageBytes == null && _videoBytes == null)
+    if (_text.text.trim().isEmpty && _images.isEmpty && _videoBytes == null)
       return;
     setState(() => _busy = true);
     try {
       String? mediaUrl;
       String? mediaType;
-      if (_imageBytes != null) {
-        mediaUrl = await StorageService().uploadPostImageBytes(
-          bytes: _imageBytes!,
+      var moreMediaUrls = <String>[];
+      if (_images.isNotEmpty) {
+        final urls = await StorageService().uploadPostImagesBytes(
+          images: _images,
           uid: _uid,
         );
+        mediaUrl = urls
+            .first; // รูปแรก = mediaUrl เดิม, รูปที่เหลือเก็บใน moreMediaUrls
+        moreMediaUrls = urls.sublist(1);
         mediaType = 'image';
       } else if (_videoBytes != null) {
         mediaUrl = await VideoUploadService().uploadVideoBytes(
@@ -87,11 +92,12 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
         text: _text.text,
         mediaUrl: mediaUrl,
         mediaType: mediaType,
+        moreMediaUrls: moreMediaUrls,
       );
       _text.clear();
       if (mounted)
         setState(() {
-          _imageBytes = null;
+          _images.clear();
           _videoBytes = null;
           _videoName = null;
         });
@@ -103,18 +109,54 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
   }
 
   Future<void> _pickImage() async {
-    try {
-      final file = await ImagePicker().pickImage(
-        source: ImageSource.gallery,
-        maxWidth: 640,
-        maxHeight: 640,
-        imageQuality: 55,
+    final remaining = StorageService.maxPostImages - _images.length;
+    if (remaining <= 0) {
+      _message(
+        'เลือกรูปได้ไม่เกิน ${StorageService.maxPostImages} รูปต่อโพสต์',
       );
-      if (file == null) return;
-      final bytes = await file.readAsBytes();
+      return;
+    }
+    try {
+      // pickMultiImage ต้องมี limit >= 2 จึงใช้ pickImage ตอนเหลือที่ว่างรูปเดียว
+      final List<XFile> picked;
+      if (remaining == 1) {
+        final one = await ImagePicker().pickImage(
+          source: ImageSource.gallery,
+          maxWidth: 640,
+          maxHeight: 640,
+          imageQuality: 55,
+        );
+        picked = one == null ? const [] : [one];
+      } else {
+        picked = await ImagePicker().pickMultiImage(
+          maxWidth: 640,
+          maxHeight: 640,
+          imageQuality: 55,
+          limit: remaining,
+        );
+      }
+      if (picked.isEmpty) return;
+      // บางแพลตฟอร์ม (เช่น เว็บ) ไม่สนใจ limit จึงตัดส่วนเกินทิ้งเอง
+      final added = <Uint8List>[
+        for (final file in picked.take(remaining)) await file.readAsBytes(),
+      ];
+      final next = [..._images, ...added];
+      final error = StorageService.validatePostImages(next);
+      if (error != null) {
+        _message(error);
+        return;
+      }
+      if (picked.length > remaining) {
+        _message(
+          'เลือกรูปได้ไม่เกิน ${StorageService.maxPostImages} รูปต่อโพสต์ '
+          '(ใช้ $remaining รูปแรกที่เลือก)',
+        );
+      }
       if (mounted)
         setState(() {
-          _imageBytes = bytes;
+          _images
+            ..clear()
+            ..addAll(next);
           _videoBytes = null;
           _videoName = null;
         });
@@ -139,7 +181,7 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
         setState(() {
           _videoBytes = bytes;
           _videoName = file.name;
-          _imageBytes = null;
+          _images.clear();
         });
     } catch (e) {
       _message('เลือกวิดีโอไม่สำเร็จ: $e');
@@ -383,8 +425,50 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
                           ),
                         ],
                       ),
-                      if (_imageBytes != null)
-                        Image.memory(_imageBytes!, height: 120),
+                      if (_images.isNotEmpty)
+                        SizedBox(
+                          height: 100,
+                          child: ListView.separated(
+                            scrollDirection: Axis.horizontal,
+                            itemCount: _images.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(width: 8),
+                            itemBuilder: (context, i) => Stack(
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Image.memory(
+                                    _images[i],
+                                    width: 100,
+                                    height: 100,
+                                    fit: BoxFit.cover,
+                                  ),
+                                ),
+                                Positioned(
+                                  top: 0,
+                                  right: 0,
+                                  child: IconButton(
+                                    tooltip: 'ลบรูปที่ ${i + 1}',
+                                    visualDensity: VisualDensity.compact,
+                                    icon: const Icon(
+                                      Icons.close,
+                                      size: 18,
+                                      color: Colors.white,
+                                    ),
+                                    style: IconButton.styleFrom(
+                                      backgroundColor: Colors.black45,
+                                    ),
+                                    onPressed: _busy
+                                        ? null
+                                        : () => setState(
+                                            () => _images.removeAt(i),
+                                          ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
                       if (_videoName != null)
                         ListTile(
                           dense: true,
@@ -405,9 +489,18 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
                       Row(
                         children: [
                           TextButton.icon(
-                            onPressed: _busy ? null : _pickImage,
+                            onPressed:
+                                _busy ||
+                                    _images.length >=
+                                        StorageService.maxPostImages
+                                ? null
+                                : _pickImage,
                             icon: const Icon(Icons.image_outlined),
-                            label: const Text('รูป'),
+                            label: Text(
+                              _images.isEmpty
+                                  ? 'รูป'
+                                  : 'รูป (${_images.length}/${StorageService.maxPostImages})',
+                            ),
                           ),
                           TextButton.icon(
                             onPressed: _busy ? null : _pickVideo,
@@ -577,6 +670,9 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
                                           child: PostMedia(
                                             url: data['mediaUrl'] as String,
                                             type: data['mediaType'] as String?,
+                                            moreUrls: Post.urlList(
+                                              data['moreMediaUrls'],
+                                            ),
                                           ),
                                         ),
                                       _CommunityPostActions(

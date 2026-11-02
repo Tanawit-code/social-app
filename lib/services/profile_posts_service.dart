@@ -82,6 +82,7 @@ class ProfilePostsService {
           content: data['text'] as String? ?? '',
           mediaUrl: data['mediaUrl'] as String?,
           mediaType: data['mediaType'] as String?,
+          moreMediaUrls: Post.urlList(data['moreMediaUrls']),
           createdAt: data['createdAt'] as Timestamp?,
           likeCount: (data['likeCount'] as num?)?.toInt() ?? 0,
           dislikeCount: (data['dislikeCount'] as num?)?.toInt() ?? 0,

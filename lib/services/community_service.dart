@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/community_model.dart';
+import 'storage_service.dart';
 
 class CommunityService {
   final _db = FirebaseFirestore.instance;
@@ -81,6 +82,7 @@ class CommunityService {
     required String text,
     String? mediaUrl,
     String? mediaType,
+    List<String> moreMediaUrls = const [],
   }) async {
     final value = text.trim();
     if ((value.isEmpty && mediaUrl == null) || value.length > 5000) {
@@ -91,11 +93,20 @@ class CommunityService {
     if (mediaType != null && !['image', 'video'].contains(mediaType)) {
       throw Exception('ชนิดสื่อไม่ถูกต้อง');
     }
+    if (moreMediaUrls.isNotEmpty &&
+        (mediaType != 'image' ||
+            mediaUrl == null ||
+            moreMediaUrls.length >= StorageService.maxPostImages)) {
+      throw Exception(
+        'เลือกรูปได้ไม่เกิน ${StorageService.maxPostImages} รูปต่อโพสต์',
+      );
+    }
     await _communities.doc(communityId).collection('posts').add({
       'authorId': authorId,
       'text': value,
       'mediaUrl': mediaUrl,
       'mediaType': mediaType,
+      if (moreMediaUrls.isNotEmpty) 'moreMediaUrls': moreMediaUrls,
       'createdAt': FieldValue.serverTimestamp(),
       'isPinned': false,
       'likeCount': 0,

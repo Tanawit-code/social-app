@@ -222,6 +222,15 @@ service cloud.firestore {
     }
 
     match /posts/{postId} {
+      // Extra photos of a multi-photo post (the first photo stays in mediaUrl).
+      // At most 3 extra photos, each a bounded string; total size is capped by
+      // the client and by Firestore's 1 MiB document limit.
+      function validMoreMedia(urls) {
+        return urls is list && urls.size() <= 3
+          && (urls.size() < 1 || (urls[0] is string && urls[0].size() <= 400000))
+          && (urls.size() < 2 || (urls[1] is string && urls[1].size() <= 400000))
+          && (urls.size() < 3 || (urls[2] is string && urls[2].size() <= 400000));
+      }
       function reactionPath(uid) {
         return /databases/$(database)/documents/posts/$(postId)/reactions/$(uid);
       }
@@ -237,7 +246,8 @@ service cloud.firestore {
           && request.resource.data.sharedAuthorId == original.authorId
           && request.resource.data.sharedContent == original.get('content', '')
           && request.resource.data.get('sharedMediaUrl', null) == original.get('mediaUrl', null)
-          && request.resource.data.get('sharedMediaType', null) == original.get('mediaType', null);
+          && request.resource.data.get('sharedMediaType', null) == original.get('mediaType', null)
+          && request.resource.data.get('sharedMoreMediaUrls', null) == original.get('moreMediaUrls', null);
       }
       function validSharedPost() {
         return request.resource.data.sharedPostId is string
@@ -246,12 +256,16 @@ service cloud.firestore {
       }
       allow get, list: if canViewPost(resource.data);
       allow create: if signedIn() && request.resource.data.authorId == request.auth.uid
-        && request.resource.data.keys().hasOnly(['authorId', 'content', 'mediaUrl', 'mediaType', 'isReel', 'pageId', 'audience', 'sharedPostId', 'sharedAuthorId', 'sharedContent', 'sharedMediaUrl', 'sharedMediaType', 'createdAt', 'likeCount', 'dislikeCount'])
+        && request.resource.data.keys().hasOnly(['authorId', 'content', 'mediaUrl', 'mediaType', 'moreMediaUrls', 'isReel', 'pageId', 'audience', 'sharedPostId', 'sharedAuthorId', 'sharedContent', 'sharedMediaUrl', 'sharedMediaType', 'sharedMoreMediaUrls', 'createdAt', 'likeCount', 'dislikeCount'])
         && request.resource.data.get('audience', 'public') in ['public', 'friends', 'private']
         && request.resource.data.content is string && request.resource.data.content.size() <= 10000
         && (request.resource.data.get('mediaUrl', null) == null
           || (request.resource.data.mediaUrl is string && request.resource.data.mediaUrl.size() <= 400000))
         && request.resource.data.get('mediaType', null) in [null, 'image', 'video']
+        && (request.resource.data.get('moreMediaUrls', null) == null
+          || (request.resource.data.get('mediaType', null) == 'image'
+            && request.resource.data.get('mediaUrl', null) != null
+            && validMoreMedia(request.resource.data.moreMediaUrls)))
         && request.resource.data.get('isReel', false) is bool
         && (!request.resource.data.get('isReel', false) || request.resource.data.get('mediaType', null) == 'video')
         && (request.resource.data.get('sharedPostId', null) == null || validSharedPost())
@@ -381,6 +395,12 @@ service cloud.firestore {
       }
 
       match /posts/{postId} {
+        function validMoreMedia(urls) {
+          return urls is list && urls.size() <= 3
+            && (urls.size() < 1 || (urls[0] is string && urls[0].size() <= 400000))
+            && (urls.size() < 2 || (urls[1] is string && urls[1].size() <= 400000))
+            && (urls.size() < 3 || (urls[2] is string && urls[2].size() <= 400000));
+        }
         function reactionPath(uid) {
           return /databases/$(database)/documents/communities/$(communityId)/posts/$(postId)/reactions/$(uid);
         }
@@ -393,14 +413,18 @@ service cloud.firestore {
         allow get, list: if communityCanView(communityId);
         allow create: if communityMember(communityId)
           && !exists(/databases/$(database)/documents/communities/$(communityId)/banned/$(request.auth.uid))
-          && request.resource.data.keys().hasOnly(['authorId', 'text', 'mediaUrl', 'mediaType', 'createdAt', 'isPinned'])
+          && request.resource.data.keys().hasOnly(['authorId', 'text', 'mediaUrl', 'mediaType', 'moreMediaUrls', 'createdAt', 'isPinned', 'likeCount', 'dislikeCount'])
           && request.resource.data.authorId == request.auth.uid
           && request.resource.data.text is string && request.resource.data.text.size() <= 5000
           && (request.resource.data.get('mediaUrl', null) == null
             || (request.resource.data.mediaUrl is string && request.resource.data.mediaUrl.size() <= 400000))
           && request.resource.data.get('mediaType', null) in [null, 'image', 'video']
           && (request.resource.data.get('mediaUrl', null) == null) == (request.resource.data.get('mediaType', null) == null)
+          && (request.resource.data.get('moreMediaUrls', null) == null
+            || (request.resource.data.get('mediaType', null) == 'image'
+              && validMoreMedia(request.resource.data.moreMediaUrls)))
           && (request.resource.data.text.size() > 0 || request.resource.data.get('mediaUrl', null) != null)
+          && request.resource.data.get('likeCount', 0) == 0 && request.resource.data.get('dislikeCount', 0) == 0
           && request.resource.data.createdAt == request.time && request.resource.data.isPinned == false;
         allow update: if (communityModerator(communityId)
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isPinned'])

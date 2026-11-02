@@ -3,14 +3,17 @@ import 'package:video_player/video_player.dart';
 import '../utils/image_data.dart';
 
 /// แสดงสื่อของโพสต์: type == 'video' -> เครื่องเล่นวิดีโอ, นอกนั้น -> รูป
+/// ถ้ามี [moreUrls] (โพสต์หลายรูป) จะแสดงเป็นตารางรูป กดดูเต็มจอและปัดดูทีละรูปได้
 class PostMedia extends StatelessWidget {
   final String url;
   final String? type;
+  final List<String> moreUrls;
   final double errorHeight;
 
   const PostMedia({
     required this.url,
     this.type,
+    this.moreUrls = const [],
     this.errorHeight = 150,
     super.key,
   });
@@ -18,11 +21,169 @@ class PostMedia extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (type == 'video') return _VideoBox(url: url);
+    if (moreUrls.isNotEmpty) {
+      return PostImageGallery(urls: [url, ...moreUrls]);
+    }
     return AppImage(
       src: url,
       width: double.infinity,
       fit: BoxFit.cover,
       errorHeight: errorHeight,
+    );
+  }
+}
+
+/// ตารางรูปของโพสต์หลายรูป: 2 รูป = เคียงกัน, 3 รูป = ใหญ่ซ้าย + เล็กสองรูปขวา,
+/// 4 รูปขึ้นไป = 2x2 (ถ้ามีเกิน 4 รูปจะแสดง +N ที่ช่องสุดท้าย)
+class PostImageGallery extends StatelessWidget {
+  final List<String> urls;
+  const PostImageGallery({required this.urls, super.key});
+
+  static const _gap = 2.0;
+
+  void _open(BuildContext context, int index) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => _ImageViewer(urls: urls, initialIndex: index),
+      ),
+    );
+  }
+
+  Widget _tile(BuildContext context, int index, {int hiddenCount = 0}) {
+    return GestureDetector(
+      onTap: () => _open(context, index),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          AppImage(src: urls[index], fit: BoxFit.cover),
+          if (hiddenCount > 0)
+            ColoredBox(
+              color: Colors.black54,
+              child: Center(
+                child: Text(
+                  '+$hiddenCount',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final count = urls.length;
+    if (count == 0) return const SizedBox.shrink();
+    if (count == 1) {
+      return GestureDetector(
+        onTap: () => _open(context, 0),
+        child: AppImage(src: urls.first, width: double.infinity),
+      );
+    }
+
+    final Widget grid;
+    if (count == 2) {
+      grid = Row(
+        children: [
+          Expanded(child: _tile(context, 0)),
+          const SizedBox(width: _gap),
+          Expanded(child: _tile(context, 1)),
+        ],
+      );
+    } else if (count == 3) {
+      grid = Row(
+        children: [
+          Expanded(flex: 3, child: _tile(context, 0)),
+          const SizedBox(width: _gap),
+          Expanded(
+            flex: 2,
+            child: Column(
+              children: [
+                Expanded(child: _tile(context, 1)),
+                const SizedBox(height: _gap),
+                Expanded(child: _tile(context, 2)),
+              ],
+            ),
+          ),
+        ],
+      );
+    } else {
+      grid = Column(
+        children: [
+          Expanded(
+            child: Row(
+              children: [
+                Expanded(child: _tile(context, 0)),
+                const SizedBox(width: _gap),
+                Expanded(child: _tile(context, 1)),
+              ],
+            ),
+          ),
+          const SizedBox(height: _gap),
+          Expanded(
+            child: Row(
+              children: [
+                Expanded(child: _tile(context, 2)),
+                const SizedBox(width: _gap),
+                Expanded(child: _tile(context, 3, hiddenCount: count - 4)),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+    return AspectRatio(aspectRatio: count == 3 ? 16 / 10 : 1.25, child: grid);
+  }
+}
+
+/// ดูรูปเต็มจอ ปัดซ้าย/ขวาเพื่อเปลี่ยนรูป บีบเพื่อซูมได้
+class _ImageViewer extends StatefulWidget {
+  final List<String> urls;
+  final int initialIndex;
+  const _ImageViewer({required this.urls, required this.initialIndex});
+
+  @override
+  State<_ImageViewer> createState() => _ImageViewerState();
+}
+
+class _ImageViewerState extends State<_ImageViewer> {
+  late final PageController _controller = PageController(
+    initialPage: widget.initialIndex,
+  );
+  late int _index = widget.initialIndex;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: Text('${_index + 1}/${widget.urls.length}'),
+      ),
+      body: PageView.builder(
+        controller: _controller,
+        itemCount: widget.urls.length,
+        onPageChanged: (i) => setState(() => _index = i),
+        itemBuilder: (_, i) => InteractiveViewer(
+          maxScale: 4,
+          child: Center(
+            child: AppImage(src: widget.urls[i], fit: BoxFit.contain),
+          ),
+        ),
+      ),
     );
   }
 }

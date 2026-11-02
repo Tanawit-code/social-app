@@ -12,10 +12,49 @@ class StorageService {
   static const _maxAvatarBytes = 100 * 1024;
   static const _maxCoverBytes = 300 * 1024;
 
+  /// จำนวนรูปสูงสุดต่อ 1 โพสต์ (โพสต์ฟีด / เพจ / ชุมชน)
+  /// รูปทั้งหมดอยู่ในเอกสาร Firestore เดียวกัน (จำกัด 1 MiB) จึงจำกัดขนาดรวมด้วย
+  /// base64 ใหญ่ขึ้นราว 33% → 640 KB กลายเป็นราว 850 KB เหลือที่ให้ข้อความและฟิลด์อื่น
+  static const maxPostImages = 4;
+  static const _maxPostTotalBytes = 640 * 1024;
+
   Future<String> uploadPostImageBytes({
     required Uint8List bytes,
     required String uid,
   }) async => _encode(bytes, _maxPostBytes, 'รูปโพสต์');
+
+  /// คืนข้อความผิดพลาด (ภาษาไทย) ถ้ารูปชุดนี้ใส่ในโพสต์เดียวไม่ได้ ไม่งั้นคืน null
+  static String? validatePostImages(List<Uint8List> images) {
+    if (images.length > maxPostImages) {
+      return 'เลือกรูปได้ไม่เกิน $maxPostImages รูปต่อโพสต์';
+    }
+    var total = 0;
+    for (var i = 0; i < images.length; i++) {
+      final size = images[i].length;
+      if (size > _maxPostBytes) {
+        return 'รูปที่ ${i + 1} ใหญ่เกินไป (${size ~/ 1024} KB, ไม่เกิน '
+            '${_maxPostBytes ~/ 1024} KB) กรุณาเลือกรูปอื่นที่เล็กกว่านี้';
+      }
+      total += size;
+    }
+    if (total > _maxPostTotalBytes) {
+      return 'รูปรวมกันใหญ่เกินไป (${total ~/ 1024} KB, ไม่เกิน '
+          '${_maxPostTotalBytes ~/ 1024} KB) กรุณาลดจำนวนรูปหรือเลือกรูปที่เล็กลง';
+    }
+    return null;
+  }
+
+  /// แปลงหลายรูปเป็น data URL เรียงตามลำดับที่เลือก (รูปแรก = รูปหน้าปกของโพสต์)
+  Future<List<String>> uploadPostImagesBytes({
+    required List<Uint8List> images,
+    required String uid,
+  }) async {
+    final error = validatePostImages(images);
+    if (error != null) throw Exception(error);
+    return [
+      for (final bytes in images) _encode(bytes, _maxPostBytes, 'รูปโพสต์'),
+    ];
+  }
 
   Future<String> uploadChatImageBytes({
     required Uint8List bytes,

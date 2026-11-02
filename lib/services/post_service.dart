@@ -13,6 +13,7 @@ class PostService {
     required String content,
     String? mediaUrl,
     String? mediaType,
+    List<String> moreMediaUrls = const [],
     String? pageId,
     String audience = 'public',
     bool isReel = false,
@@ -35,6 +36,7 @@ class PostService {
       content: content,
       mediaUrl: mediaUrl,
       mediaType: mediaType,
+      moreMediaUrls: mediaType == 'image' ? moreMediaUrls : const [],
       isReel: isReel,
       pageId: pageId,
       audience: audience,
@@ -63,6 +65,7 @@ class PostService {
       sharedContent: original.content,
       sharedMediaUrl: original.mediaUrl,
       sharedMediaType: original.mediaType,
+      sharedMoreMediaUrls: original.moreMediaUrls,
     );
     final doc = await _posts.add(share.toMap());
     return doc.id;

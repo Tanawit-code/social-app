@@ -778,6 +778,7 @@ class _PostCardState extends State<PostCard> {
                     child: PostMedia(
                       url: post.mediaUrl!,
                       type: post.mediaType,
+                      moreUrls: post.moreMediaUrls,
                       errorHeight: 150,
                     ),
                   ),
@@ -1173,6 +1174,7 @@ class _SharedPostPreview extends StatelessWidget {
             child: PostMedia(
               url: post.sharedMediaUrl!,
               type: post.sharedMediaType,
+              moreUrls: post.sharedMoreMediaUrls,
               errorHeight: 150,
             ),
           ),

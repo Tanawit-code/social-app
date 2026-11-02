@@ -23,7 +23,8 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   final _picker = ImagePicker();
 
   // ใช้ bytes แทน File เพราะ File ของ dart:io ใช้กับ Flutter Web ไม่ได้
-  Uint8List? _selectedImageBytes;
+  final List<Uint8List> _selectedImages =
+      []; // เลือกได้หลายรูป (สูงสุด maxPostImages)
   Uint8List? _selectedVideoBytes;
   String? _selectedVideoName;
   bool _submitting = false;
@@ -38,25 +39,62 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   }
 
   Future<void> _pickImage() async {
-    try {
-      final picked = await _picker.pickImage(
-        source: ImageSource.gallery,
-        imageQuality: 55,
-        maxWidth: 640,
-        maxHeight: 640,
+    final remaining = StorageService.maxPostImages - _selectedImages.length;
+    if (remaining <= 0) {
+      setState(
+        () => _errorText =
+            'เลือกรูปได้ไม่เกิน ${StorageService.maxPostImages} รูปต่อโพสต์',
       );
-      if (picked != null) {
-        final bytes = await picked.readAsBytes();
-        setState(() {
-          _selectedImageBytes = bytes;
-          _shareAsReel = false;
-          _selectedVideoBytes =
-              null; // 1 โพสต์ = รูปหรือวิดีโออย่างใดอย่างหนึ่ง
-          _selectedVideoName = null;
-        });
+      return;
+    }
+    try {
+      // pickMultiImage ต้องมี limit >= 2 จึงใช้ pickImage ตอนเหลือที่ว่างรูปเดียว
+      final List<XFile> picked;
+      if (remaining == 1) {
+        final one = await _picker.pickImage(
+          source: ImageSource.gallery,
+          imageQuality: 55,
+          maxWidth: 640,
+          maxHeight: 640,
+        );
+        picked = one == null ? const [] : [one];
+      } else {
+        picked = await _picker.pickMultiImage(
+          imageQuality: 55,
+          maxWidth: 640,
+          maxHeight: 640,
+          limit: remaining,
+        );
       }
+      if (picked.isEmpty) return;
+      // บางแพลตฟอร์ม (เช่น เว็บ) ไม่สนใจ limit จึงตัดส่วนเกินทิ้งเอง
+      final added = <Uint8List>[
+        for (final file in picked.take(remaining)) await file.readAsBytes(),
+      ];
+      final next = [..._selectedImages, ...added];
+      final error = StorageService.validatePostImages(next);
+      if (!mounted) return;
+      if (error != null) {
+        setState(() => _errorText = error);
+        return;
+      }
+      setState(() {
+        _errorText = picked.length > remaining
+            ? 'เลือกรูปได้ไม่เกิน ${StorageService.maxPostImages} รูปต่อโพสต์ '
+                  '(ใช้ $remaining รูปแรกที่เลือก)'
+            : null;
+        _selectedImages
+          ..clear()
+          ..addAll(next);
+        _shareAsReel = false;
+        _selectedVideoBytes =
+            null; // 1 โพสต์ = รูป (หลายรูปได้) หรือวิดีโออย่างใดอย่างหนึ่ง
+        _selectedVideoName = null;
+      });
     } catch (e) {
-      setState(() => _errorText = 'เลือกรูปไม่สำเร็จ ลองใหม่อีกครั้ง');
+      if (mounted) {
+        setState(() => _errorText = 'เลือกรูปไม่สำเร็จ ลองใหม่อีกครั้ง');
+      }
     }
   }
 
@@ -79,7 +117,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         _errorText = null;
         _selectedVideoBytes = bytes;
         _selectedVideoName = picked.name;
-        _selectedImageBytes = null;
+        _selectedImages.clear();
       });
     } catch (e) {
       setState(() => _errorText = 'เลือกวิดีโอไม่สำเร็จ ลองใหม่อีกครั้ง');
@@ -95,7 +133,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       return;
     }
     if (content.isEmpty &&
-        _selectedImageBytes == null &&
+        _selectedImages.isEmpty &&
         _selectedVideoBytes == null) {
       setState(
         () => _errorText = 'กรุณาใส่ข้อความ รูป หรือวิดีโออย่างน้อย 1 อย่าง',
@@ -111,12 +149,16 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     try {
       String? mediaUrl;
       String? mediaType;
+      var moreMediaUrls = <String>[];
 
-      if (_selectedImageBytes != null) {
-        mediaUrl = await _storageService.uploadPostImageBytes(
-          bytes: _selectedImageBytes!,
+      if (_selectedImages.isNotEmpty) {
+        final urls = await _storageService.uploadPostImagesBytes(
+          images: _selectedImages,
           uid: user.uid,
         );
+        mediaUrl = urls
+            .first; // รูปแรก = mediaUrl เดิม, รูปที่เหลือเก็บใน moreMediaUrls
+        moreMediaUrls = urls.sublist(1);
         mediaType = 'image';
       } else if (_selectedVideoBytes != null) {
         mediaUrl = await _videoService.uploadVideoBytes(
@@ -131,6 +173,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         content: content,
         mediaUrl: mediaUrl,
         mediaType: mediaType,
+        moreMediaUrls: moreMediaUrls,
         pageId: widget.pageId,
         audience: widget.pageId == null ? _audience : 'public',
         isReel: _shareAsReel && mediaType == 'video',
@@ -218,33 +261,56 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
               ),
             ],
             const SizedBox(height: 12),
-            if (_selectedImageBytes != null)
-              Stack(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Image.memory(
-                      _selectedImageBytes!,
-                      height: 200,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                  Positioned(
-                    top: 4,
-                    right: 4,
-                    child: IconButton(
-                      tooltip: 'ลบรูปที่เลือก',
-                      icon: const Icon(Icons.close, color: Colors.white),
-                      style: IconButton.styleFrom(
-                        backgroundColor: Colors.black45,
+            if (_selectedImages.isNotEmpty) ...[
+              SizedBox(
+                height: 120,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: _selectedImages.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                  itemBuilder: (context, i) => Stack(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.memory(
+                          _selectedImages[i],
+                          width: 120,
+                          height: 120,
+                          fit: BoxFit.cover,
+                        ),
                       ),
-                      onPressed: () =>
-                          setState(() => _selectedImageBytes = null),
-                    ),
+                      Positioned(
+                        top: 0,
+                        right: 0,
+                        child: IconButton(
+                          tooltip: 'ลบรูปที่ ${i + 1}',
+                          visualDensity: VisualDensity.compact,
+                          icon: const Icon(
+                            Icons.close,
+                            size: 18,
+                            color: Colors.white,
+                          ),
+                          style: IconButton.styleFrom(
+                            backgroundColor: Colors.black45,
+                          ),
+                          onPressed: _submitting
+                              ? null
+                              : () =>
+                                    setState(() => _selectedImages.removeAt(i)),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  '${_selectedImages.length}/${StorageService.maxPostImages} รูป',
+                  style: const TextStyle(fontSize: 12, color: Colors.black54),
+                ),
+              ),
+            ],
             if (_selectedVideoBytes != null)
               Card(
                 margin: EdgeInsets.zero,
@@ -293,9 +359,18 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
               children: [
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: _submitting ? null : _pickImage,
+                    onPressed:
+                        _submitting ||
+                            _selectedImages.length >=
+                                StorageService.maxPostImages
+                        ? null
+                        : _pickImage,
                     icon: const Icon(Icons.image_outlined),
-                    label: const Text('เพิ่มรูปภาพ'),
+                    label: Text(
+                      _selectedImages.isEmpty
+                          ? 'เพิ่มรูปภาพ'
+                          : 'เพิ่มรูปภาพ (${_selectedImages.length}/${StorageService.maxPostImages})',
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),

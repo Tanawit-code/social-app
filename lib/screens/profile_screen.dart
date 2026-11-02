@@ -1267,6 +1267,7 @@ class _PostTile extends StatelessWidget {
                 child: PostMedia(
                   url: post.mediaUrl!,
                   type: post.mediaType,
+                  moreUrls: post.moreMediaUrls,
                   errorHeight: 120,
                 ),
               ),
