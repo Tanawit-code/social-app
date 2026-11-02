@@ -8,6 +8,9 @@ import '../services/storage_service.dart';
 import '../services/notification_service.dart';
 import '../utils/image_data.dart';
 import '../widgets/user_avatar.dart';
+import '../widgets/chat_actions.dart';
+import 'add_group_members_screen.dart';
+import 'home_feed_screen.dart' show AuthorName;
 
 class GroupChatScreen extends StatefulWidget {
   final String groupId;
@@ -73,25 +76,159 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     }
   }
 
+  Widget _notMember() => Scaffold(
+    appBar: AppBar(),
+    body: const Center(child: Text('คุณไม่ได้เป็นสมาชิกของกลุ่มนี้แล้ว')),
+  );
+
+  Future<bool> _askConfirm(String title, String message, String label) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('ยกเลิก'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(label),
+          ),
+        ],
+      ),
+    );
+    return ok == true;
+  }
+
+  Future<void> _addFriends(Map<String, dynamic> group) async {
+    final existing = List<String>.from(group['participants'] ?? const []);
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AddGroupMembersScreen(
+          groupId: widget.groupId,
+          ownerUid: _uid,
+          existingMembers: existing,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _leaveGroup(bool isOwner) async {
+    final ok = await _askConfirm(
+      'ออกจากกลุ่ม',
+      isOwner
+          ? 'คุณเป็นเจ้าของกลุ่ม ถ้าออก ความเป็นเจ้าของจะถูกโอนให้สมาชิกคนถัดไป (ถ้าไม่มีสมาชิกอื่น กลุ่มจะถูกลบ)'
+          : 'คุณจะไม่เห็นข้อความของกลุ่มนี้อีก และต้องให้สมาชิกเพิ่มคุณใหม่ถึงจะกลับเข้ามาได้',
+      'ออกจากกลุ่ม',
+    );
+    if (!ok) return;
+    try {
+      await ChatService().leaveGroup(groupId: widget.groupId, uid: _uid);
+      _toast('ออกจากกลุ่มแล้ว');
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      _toast('ออกจากกลุ่มไม่สำเร็จ: $e');
+    }
+  }
+
+  Future<void> _kickMember(String memberUid) async {
+    final ok = await _askConfirm(
+      'เตะออกจากกลุ่ม',
+      'สมาชิกคนนี้จะถูกนำออกจากกลุ่มและไม่เห็นข้อความของกลุ่มอีก',
+      'เตะออก',
+    );
+    if (!ok) return;
+    try {
+      await ChatService().removeMember(
+        groupId: widget.groupId,
+        ownerUid: _uid,
+        memberUid: memberUid,
+      );
+      _toast('นำสมาชิกออกจากกลุ่มแล้ว');
+    } catch (e) {
+      _toast('เตะสมาชิกไม่สำเร็จ: $e');
+    }
+  }
+
+  List<Widget> _groupActionButtons(
+    BuildContext sheetContext,
+    Map<String, dynamic> group, {
+    bool includeMembers = true,
+  }) {
+    final isOwner = group['ownerId'] == _uid;
+    final buttons = <Widget>[
+      if (isOwner)
+        FilledButton.tonalIcon(
+          onPressed: () {
+            Navigator.pop(sheetContext);
+            _addFriends(group);
+          },
+          icon: const Icon(Icons.person_add_alt_1),
+          label: const Text('เพิ่มเพื่อนเข้ากลุ่ม'),
+        ),
+      if (includeMembers)
+        OutlinedButton.icon(
+          onPressed: () {
+            Navigator.pop(sheetContext);
+            _showMembers(group);
+          },
+          icon: const Icon(Icons.people_outline),
+          label: Text(
+            'ดูสมาชิก (${((group['participants'] as List?) ?? []).length} คน)',
+          ),
+        ),
+      OutlinedButton.icon(
+        onPressed: () {
+          Navigator.pop(sheetContext);
+          confirmClearHistory(context, me: _uid, chatId: widget.groupId);
+        },
+        icon: const Icon(Icons.cleaning_services_outlined),
+        label: const Text('ลบประวัติแชท'),
+      ),
+      OutlinedButton.icon(
+        onPressed: () {
+          Navigator.pop(sheetContext);
+          confirmDeleteChat(
+            context,
+            me: _uid,
+            chatId: widget.groupId,
+            isGroup: true,
+            leaveScreenOnDelete: true,
+          );
+        },
+        icon: const Icon(Icons.delete_outline, color: Colors.red),
+        label: const Text('ลบแชท', style: TextStyle(color: Colors.red)),
+      ),
+      OutlinedButton.icon(
+        onPressed: () {
+          Navigator.pop(sheetContext);
+          _leaveGroup(isOwner);
+        },
+        icon: const Icon(Icons.logout, color: Colors.red),
+        label: const Text('ออกจากกลุ่ม', style: TextStyle(color: Colors.red)),
+      ),
+    ];
+    return [
+      for (final b in buttons)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: SizedBox(width: double.infinity, child: b),
+        ),
+    ];
+  }
+
   Future<void> _settings(Map<String, dynamic> group) async {
     final owner = group['ownerId'] == _uid;
     if (!owner) {
-      _showMembers(group);
-      return;
-    }
-    final name = TextEditingController(text: group['name'] ?? '');
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (sheetContext) => StatefulBuilder(
-        builder: (context, setSheet) => SafeArea(
+      await showModalBottomSheet(
+        context: context,
+        builder: (sheetContext) => SafeArea(
           child: Padding(
-            padding: EdgeInsets.fromLTRB(
-              20,
-              18,
-              20,
-              MediaQuery.of(context).viewInsets.bottom + 20,
-            ),
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -101,97 +238,137 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 16),
-                OutlinedButton.icon(
-                  onPressed: () {
-                    Navigator.pop(sheetContext);
-                    _showMembers(group);
-                  },
-                  icon: const Icon(Icons.people_outline),
-                  label: Text(
-                    'ดูสมาชิก (${((group['participants'] as List?) ?? []).length} คน)',
-                  ),
-                ),
-                TextField(
-                  controller: name,
-                  maxLength: 40,
-                  decoration: const InputDecoration(
-                    labelText: 'ชื่อกลุ่ม',
-                    border: OutlineInputBorder(),
-                  ),
-                  onSubmitted: (_) async {
-                    if (name.text.trim().isNotEmpty)
-                      await ChatService().updateGroup(widget.groupId, _uid, {
-                        'name': name.text.trim(),
-                      });
-                  },
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 10,
-                  children: [
-                    OutlinedButton.icon(
-                      onPressed: () async {
-                        await _pickImage(group, 'photoUrl');
-                        if (context.mounted) Navigator.pop(sheetContext);
-                      },
-                      icon: const Icon(Icons.photo_camera),
-                      label: const Text('เปลี่ยนรูปกลุ่ม'),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: () async {
-                        await _pickImage(group, 'backgroundUrl');
-                        if (context.mounted) Navigator.pop(sheetContext);
-                      },
-                      icon: const Icon(Icons.wallpaper),
-                      label: const Text('เลือกรูปพื้นหลัง'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                const Text('สีพื้นหลังแชท'),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 12,
-                  children: _colors
-                      .map(
-                        (color) => InkWell(
-                          onTap: () async {
-                            await ChatService().updateGroup(
-                              widget.groupId,
-                              _uid,
-                              {'backgroundColor': color, 'backgroundUrl': ''},
-                            );
-                            if (context.mounted) Navigator.pop(sheetContext);
-                          },
-                          child: CircleAvatar(
-                            radius: 19,
-                            backgroundColor: Color(color),
-                            child: (group['backgroundColor'] == color)
-                                ? const Icon(Icons.check, size: 18)
-                                : null,
-                          ),
-                        ),
-                      )
-                      .toList(),
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: () async {
-                      if (name.text.trim().isEmpty) {
-                        _toast('กรุณาใส่ชื่อกลุ่ม');
-                        return;
-                      }
-                      await ChatService().updateGroup(widget.groupId, _uid, {
-                        'name': name.text.trim(),
-                      });
-                      if (context.mounted) Navigator.pop(sheetContext);
-                    },
-                    child: const Text('บันทึกชื่อ'),
-                  ),
-                ),
+                ..._groupActionButtons(sheetContext, group),
               ],
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+    final name = TextEditingController(text: group['name'] ?? '');
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheet) => SafeArea(
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                20,
+                18,
+                20,
+                MediaQuery.of(context).viewInsets.bottom + 20,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'ตั้งค่ากลุ่ม',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 16),
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(sheetContext);
+                      _showMembers(group);
+                    },
+                    icon: const Icon(Icons.people_outline),
+                    label: Text(
+                      'ดูสมาชิก (${((group['participants'] as List?) ?? []).length} คน)',
+                    ),
+                  ),
+                  TextField(
+                    controller: name,
+                    maxLength: 40,
+                    decoration: const InputDecoration(
+                      labelText: 'ชื่อกลุ่ม',
+                      border: OutlineInputBorder(),
+                    ),
+                    onSubmitted: (_) async {
+                      if (name.text.trim().isNotEmpty)
+                        await ChatService().updateGroup(widget.groupId, _uid, {
+                          'name': name.text.trim(),
+                        });
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 10,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          await _pickImage(group, 'photoUrl');
+                          if (context.mounted) Navigator.pop(sheetContext);
+                        },
+                        icon: const Icon(Icons.photo_camera),
+                        label: const Text('เปลี่ยนรูปกลุ่ม'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          await _pickImage(group, 'backgroundUrl');
+                          if (context.mounted) Navigator.pop(sheetContext);
+                        },
+                        icon: const Icon(Icons.wallpaper),
+                        label: const Text('เลือกรูปพื้นหลัง'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  const Text('สีพื้นหลังแชท'),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 12,
+                    children: _colors
+                        .map(
+                          (color) => InkWell(
+                            onTap: () async {
+                              await ChatService().updateGroup(
+                                widget.groupId,
+                                _uid,
+                                {'backgroundColor': color, 'backgroundUrl': ''},
+                              );
+                              if (context.mounted) Navigator.pop(sheetContext);
+                            },
+                            child: CircleAvatar(
+                              radius: 19,
+                              backgroundColor: Color(color),
+                              child: (group['backgroundColor'] == color)
+                                  ? const Icon(Icons.check, size: 18)
+                                  : null,
+                            ),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: () async {
+                        if (name.text.trim().isEmpty) {
+                          _toast('กรุณาใส่ชื่อกลุ่ม');
+                          return;
+                        }
+                        await ChatService().updateGroup(widget.groupId, _uid, {
+                          'name': name.text.trim(),
+                        });
+                        if (context.mounted) Navigator.pop(sheetContext);
+                      },
+                      child: const Text('บันทึกชื่อ'),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  const Divider(),
+                  const SizedBox(height: 4),
+                  ..._groupActionButtons(
+                    sheetContext,
+                    group,
+                    includeMembers: false,
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -200,85 +377,94 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     name.dispose();
   }
 
-  void _showMembers(Map<String, dynamic> group) {
-    final memberIds = List<String>.from(group['participants'] ?? const []);
-    final ownerId = group['ownerId'] as String? ?? '';
+  void _showMembers(Map<String, dynamic> initial) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      builder: (context) => SafeArea(
+      builder: (sheetContext) => SafeArea(
         child: SizedBox(
-          height: MediaQuery.of(context).size.height * 0.65,
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
-                child: Row(
-                  children: [
-                    const Icon(Icons.groups_outlined),
-                    const SizedBox(width: 10),
-                    Text(
-                      'สมาชิก ${memberIds.length} คน',
-                      style: const TextStyle(
-                        fontSize: 19,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(height: 1),
-              Expanded(
-                child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream: FirebaseFirestore.instance
-                      .collection('users')
-                      .where('isPrivate', isEqualTo: false)
-                      .limit(200)
-                      .snapshots(),
-                  builder: (context, snap) {
-                    if (snap.hasError)
-                      return Center(
-                        child: Text('โหลดสมาชิกไม่สำเร็จ: ${snap.error}'),
-                      );
-                    if (!snap.hasData)
-                      return const Center(child: CircularProgressIndicator());
-                    final members =
-                        snap.data!.docs
-                            .where((user) => memberIds.contains(user.id))
-                            .toList()
-                          ..sort((a, b) {
-                            if (a.id == ownerId) return -1;
-                            if (b.id == ownerId) return 1;
-                            return ((a.data()['name'] ?? '') as String)
-                                .compareTo((b.data()['name'] ?? '') as String);
-                          });
-                    return ListView.builder(
-                      itemCount: members.length,
-                      itemBuilder: (context, index) {
-                        final member = members[index];
-                        final name = (member.data()['name'] ?? '') as String;
-                        final photo =
-                            member.data()['photoUrl'] as String? ?? '';
-                        return ListTile(
-                          leading: CircleAvatar(
-                            backgroundImage: imageProviderFor(photo),
-                            child: photo.isEmpty
-                                ? Text(
-                                    name.isEmpty ? '?' : name.characters.first,
-                                  )
-                                : null,
+          height: MediaQuery.of(sheetContext).size.height * 0.65,
+          child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+            stream: FirebaseFirestore.instance
+                .collection('chats')
+                .doc(widget.groupId)
+                .snapshots(),
+            builder: (context, snap) {
+              final group = snap.data?.data() ?? initial;
+              final memberIds = List<String>.from(
+                group['participants'] ?? const [],
+              );
+              final ownerId = group['ownerId'] as String? ?? '';
+              final iAmOwner = ownerId == _uid;
+              final ordered = [...memberIds]
+                ..sort((a, b) {
+                  if (a == ownerId) return -1;
+                  if (b == ownerId) return 1;
+                  return 0;
+                });
+              return Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.groups_outlined),
+                        const SizedBox(width: 10),
+                        Text(
+                          'สมาชิก ${memberIds.length} คน',
+                          style: const TextStyle(
+                            fontSize: 19,
+                            fontWeight: FontWeight.bold,
                           ),
-                          title: Text(name.isEmpty ? 'สมาชิก' : name),
-                          trailing: member.id == ownerId
-                              ? const Chip(label: Text('เจ้าของ'))
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  if (iAmOwner && memberIds.length < 50)
+                    ListTile(
+                      leading: const CircleAvatar(
+                        child: Icon(Icons.person_add_alt_1),
+                      ),
+                      title: const Text('เพิ่มเพื่อนเข้ากลุ่ม'),
+                      onTap: () {
+                        Navigator.pop(sheetContext);
+                        _addFriends(group);
+                      },
+                    ),
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: ordered.length,
+                      itemBuilder: (context, index) {
+                        final memberUid = ordered[index];
+                        return ListTile(
+                          leading: UserAvatar(uid: memberUid, radius: 20),
+                          title: AuthorName(uid: memberUid),
+                          subtitle: memberUid == _uid
+                              ? const Text('คุณ')
                               : null,
+                          trailing: memberUid == ownerId
+                              ? const Chip(label: Text('เจ้าของ'))
+                              : (iAmOwner
+                                    ? TextButton.icon(
+                                        onPressed: () => _kickMember(memberUid),
+                                        icon: const Icon(
+                                          Icons.person_remove_outlined,
+                                          size: 18,
+                                        ),
+                                        label: const Text('เตะออก'),
+                                        style: TextButton.styleFrom(
+                                          foregroundColor: Colors.red,
+                                        ),
+                                      )
+                                    : null),
                         );
                       },
-                    );
-                  },
-                ),
-              ),
-            ],
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ),
@@ -396,9 +582,12 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         .doc(widget.groupId)
         .snapshots(),
     builder: (context, groupSnap) {
+      if (groupSnap.hasError) return _notMember();
       if (!groupSnap.hasData)
         return const Scaffold(body: Center(child: CircularProgressIndicator()));
       final group = groupSnap.data!.data() ?? {};
+      if (!List<String>.from(group['participants'] ?? const []).contains(_uid))
+        return _notMember();
       final bgUrl = group['backgroundUrl'] as String? ?? '';
       final bgColor = Color(
         (group['backgroundColor'] as num?)?.toInt() ?? 0xFFF0F2F5,
@@ -447,144 +636,175 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
           child: Column(
             children: [
               Expanded(
-                child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream: FirebaseFirestore.instance
-                      .collection('chats')
-                      .doc(widget.groupId)
-                      .collection('messages')
-                      .orderBy('createdAt', descending: true)
-                      .limit(100)
-                      .snapshots(),
-                  builder: (context, snap) {
-                    if (snap.hasError)
-                      return Center(
-                        child: Text('โหลดข้อความไม่สำเร็จ: ${snap.error}'),
-                      );
-                    if (!snap.hasData)
+                child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                  stream: ChatService().chatState(_uid, widget.groupId),
+                  builder: (context, stateSnap) {
+                    // รอสถานะ "ลบประวัติแชท" ก่อนโหลดข้อความ (กันข้อความเก่าแวบขึ้นมา)
+                    if (stateSnap.hasData &&
+                        stateSnap.data!.metadata.hasPendingWrites) {
                       return const Center(child: CircularProgressIndicator());
-                    if (snap.data!.docs.isEmpty)
-                      return const Center(child: Text('เริ่มบทสนทนาของกลุ่ม'));
-                    return ListView.builder(
-                      reverse: true,
-                      padding: const EdgeInsets.all(12),
-                      itemCount: snap.data!.docs.length,
-                      itemBuilder: (context, i) {
-                        final msg = snap.data!.docs[i].data();
-                        final msgId = snap.data!.docs[i].id;
-                        final mine = msg['senderId'] == _uid;
-                        // ลบได้: เจ้าของข้อความ หรือเจ้าของกลุ่ม (ตรงกับ rules)
-                        final deleted = msg['deleted'] == true;
-                        final canDelete =
-                            !deleted && (mine || group['ownerId'] == _uid);
-                        final sender = (msg['senderId'] ?? '') as String;
-                        final image = msg['imageUrl'] as String?;
-                        final text = (msg['text'] ?? '') as String;
-                        final time = _timeLabel(msg['createdAt'] as Timestamp?);
-                        final isLike = text == '\u{1F44D}';
-                        final content = deleted
-                            ? const Text(
-                                'ข้อความถูกลบ',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontStyle: FontStyle.italic,
-                                  color: Colors.black45,
-                                ),
-                              )
-                            : image != null
-                            ? ClipRRect(
-                                borderRadius: BorderRadius.circular(17),
-                                child: AppImage(
-                                  src: image,
-                                  width: 220,
-                                  height: 180,
-                                ),
-                              )
-                            : isLike
-                            ? const Text(
-                                '\u{1F44D}',
-                                style: TextStyle(fontSize: 38),
-                              )
-                            : Text(
-                                text,
-                                style: TextStyle(
-                                  color: mine ? Colors.white : Colors.black87,
-                                  fontSize: 15,
-                                ),
-                              );
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4),
-                          child: Row(
-                            mainAxisAlignment: mine
-                                ? MainAxisAlignment.end
-                                : MainAxisAlignment.start,
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              if (!mine) ...[
-                                UserAvatar(uid: sender, radius: 14),
-                                const SizedBox(width: 6),
-                              ],
-                              Flexible(
-                                child: Column(
-                                  crossAxisAlignment: mine
-                                      ? CrossAxisAlignment.end
-                                      : CrossAxisAlignment.start,
-                                  children: [
-                                    if (!mine) AuthorNameInline(uid: sender),
-                                    GestureDetector(
-                                      onLongPress: canDelete
-                                          ? () => _deleteMessage(msgId, mine)
-                                          : null,
-                                      onSecondaryTap: canDelete
-                                          ? () => _deleteMessage(msgId, mine)
-                                          : null,
-                                      child: Container(
-                                        margin: const EdgeInsets.only(top: 2),
-                                        padding: image == null && !isLike
-                                            ? const EdgeInsets.symmetric(
-                                                horizontal: 13,
-                                                vertical: 9,
-                                              )
-                                            : EdgeInsets.zero,
-                                        decoration: deleted
-                                            ? BoxDecoration(
-                                                border: Border.all(
-                                                  color: Colors.black26,
-                                                ),
-                                                borderRadius:
-                                                    BorderRadius.circular(17),
-                                              )
-                                            : isLike || image != null
-                                            ? null
-                                            : BoxDecoration(
-                                                color: mine
-                                                    ? const Color(0xFF0084FF)
-                                                    : Colors.white,
-                                                borderRadius:
-                                                    BorderRadius.circular(17),
-                                              ),
-                                        child: content,
-                                      ),
+                    }
+                    if (!stateSnap.hasData && !stateSnap.hasError) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    final clearedAt =
+                        stateSnap.data?.data()?['clearedAt'] as Timestamp?;
+                    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                      stream: ChatService().messagesSince(
+                        widget.groupId,
+                        clearedAt,
+                      ),
+                      builder: (context, snap) {
+                        if (snap.hasError)
+                          return Center(
+                            child: Text('โหลดข้อความไม่สำเร็จ: ${snap.error}'),
+                          );
+                        if (!snap.hasData)
+                          return const Center(
+                            child: CircularProgressIndicator(),
+                          );
+                        if (snap.data!.docs.isEmpty)
+                          return const Center(
+                            child: Text('เริ่มบทสนทนาของกลุ่ม'),
+                          );
+                        return ListView.builder(
+                          reverse: true,
+                          padding: const EdgeInsets.all(12),
+                          itemCount: snap.data!.docs.length,
+                          itemBuilder: (context, i) {
+                            final msg = snap.data!.docs[i].data();
+                            final msgId = snap.data!.docs[i].id;
+                            final mine = msg['senderId'] == _uid;
+                            // ลบได้: เจ้าของข้อความ หรือเจ้าของกลุ่ม (ตรงกับ rules)
+                            final deleted = msg['deleted'] == true;
+                            final canDelete =
+                                !deleted && (mine || group['ownerId'] == _uid);
+                            final sender = (msg['senderId'] ?? '') as String;
+                            final image = msg['imageUrl'] as String?;
+                            final text = (msg['text'] ?? '') as String;
+                            final time = _timeLabel(
+                              msg['createdAt'] as Timestamp?,
+                            );
+                            final isLike = text == '\u{1F44D}';
+                            final content = deleted
+                                ? const Text(
+                                    'ข้อความถูกลบ',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontStyle: FontStyle.italic,
+                                      color: Colors.black45,
                                     ),
-                                    if (time.isNotEmpty)
-                                      Padding(
-                                        padding: const EdgeInsets.only(
-                                          top: 3,
-                                          left: 8,
-                                          right: 8,
-                                        ),
-                                        child: Text(
-                                          time,
-                                          style: const TextStyle(
-                                            fontSize: 10,
-                                            color: Colors.black45,
+                                  )
+                                : image != null
+                                ? ClipRRect(
+                                    borderRadius: BorderRadius.circular(17),
+                                    child: AppImage(
+                                      src: image,
+                                      width: 220,
+                                      height: 180,
+                                    ),
+                                  )
+                                : isLike
+                                ? const Text(
+                                    '\u{1F44D}',
+                                    style: TextStyle(fontSize: 38),
+                                  )
+                                : Text(
+                                    text,
+                                    style: TextStyle(
+                                      color: mine
+                                          ? Colors.white
+                                          : Colors.black87,
+                                      fontSize: 15,
+                                    ),
+                                  );
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              child: Row(
+                                mainAxisAlignment: mine
+                                    ? MainAxisAlignment.end
+                                    : MainAxisAlignment.start,
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  if (!mine) ...[
+                                    UserAvatar(uid: sender, radius: 14),
+                                    const SizedBox(width: 6),
+                                  ],
+                                  Flexible(
+                                    child: Column(
+                                      crossAxisAlignment: mine
+                                          ? CrossAxisAlignment.end
+                                          : CrossAxisAlignment.start,
+                                      children: [
+                                        if (!mine)
+                                          AuthorNameInline(uid: sender),
+                                        GestureDetector(
+                                          onLongPress: canDelete
+                                              ? () =>
+                                                    _deleteMessage(msgId, mine)
+                                              : null,
+                                          onSecondaryTap: canDelete
+                                              ? () =>
+                                                    _deleteMessage(msgId, mine)
+                                              : null,
+                                          child: Container(
+                                            margin: const EdgeInsets.only(
+                                              top: 2,
+                                            ),
+                                            padding: image == null && !isLike
+                                                ? const EdgeInsets.symmetric(
+                                                    horizontal: 13,
+                                                    vertical: 9,
+                                                  )
+                                                : EdgeInsets.zero,
+                                            decoration: deleted
+                                                ? BoxDecoration(
+                                                    border: Border.all(
+                                                      color: Colors.black26,
+                                                    ),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          17,
+                                                        ),
+                                                  )
+                                                : isLike || image != null
+                                                ? null
+                                                : BoxDecoration(
+                                                    color: mine
+                                                        ? const Color(
+                                                            0xFF0084FF,
+                                                          )
+                                                        : Colors.white,
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          17,
+                                                        ),
+                                                  ),
+                                            child: content,
                                           ),
                                         ),
-                                      ),
-                                  ],
-                                ),
+                                        if (time.isNotEmpty)
+                                          Padding(
+                                            padding: const EdgeInsets.only(
+                                              top: 3,
+                                              left: 8,
+                                              right: 8,
+                                            ),
+                                            child: Text(
+                                              time,
+                                              style: const TextStyle(
+                                                fontSize: 10,
+                                                color: Colors.black45,
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
+                            );
+                          },
                         );
                       },
                     );

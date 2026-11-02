@@ -9,6 +9,7 @@ import '../services/storage_service.dart';
 import '../services/notification_service.dart';
 import '../utils/image_data.dart';
 import '../widgets/user_avatar.dart';
+import '../widgets/chat_actions.dart';
 import 'home_feed_screen.dart' show AuthorName;
 
 const _messengerBlue = Color(0xFF0084FF);
@@ -31,8 +32,12 @@ class _ChatScreenState extends State<ChatScreen> {
   final _picker = ImagePicker();
   final _controller = TextEditingController();
   final _myUid = AuthService().currentUser?.uid ?? '';
-  late final Stream<QuerySnapshot<Map<String, dynamic>>> _stream = _chat
-      .messages(_myUid, widget.peerUid);
+  // รอสถานะ "ลบประวัติแชท" ก่อนค่อยเริ่มโหลดข้อความ (กันข้อความเก่าแวบขึ้นมา)
+  Stream<QuerySnapshot<Map<String, dynamic>>> _stream =
+      Stream<QuerySnapshot<Map<String, dynamic>>>.empty();
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _stateSub;
+  Timestamp? _clearedAt;
+  bool _stateLoaded = false;
   bool _sending = false;
   bool _hasText = false;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _readSubscription;
@@ -42,6 +47,28 @@ class _ChatScreenState extends State<ChatScreen> {
     super.initState();
     final id = _chat.chatId(_myUid, widget.peerUid);
     _ensureReadStream(id);
+    _stateSub = _chat
+        .chatState(_myUid, id)
+        .listen(
+          (snap) {
+            if (snap.metadata.hasPendingWrites)
+              return; // รอค่าเวลาจากเซิร์ฟเวอร์
+            final ts = snap.data()?['clearedAt'] as Timestamp?;
+            if (_stateLoaded && ts == _clearedAt) return;
+            _stateLoaded = true;
+            _clearedAt = ts;
+            if (!mounted) return;
+            setState(
+              () => _stream = _chat.messages(_myUid, widget.peerUid, since: ts),
+            );
+          },
+          onError: (_) {
+            // อ่านสถานะไม่ได้ (เช่นยังไม่ deploy rules) -> แสดงข้อความทั้งหมดตามปกติ
+            if (_stateLoaded || !mounted) return;
+            _stateLoaded = true;
+            setState(() => _stream = _chat.messages(_myUid, widget.peerUid));
+          },
+        );
     _controller.addListener(() {
       final has = _controller.text.trim().isNotEmpty;
       if (has != _hasText) setState(() => _hasText = has);
@@ -64,6 +91,7 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void dispose() {
     _readSubscription?.cancel();
+    _stateSub?.cancel();
     _controller.dispose();
     super.dispose();
   }
@@ -125,6 +153,19 @@ class _ChatScreenState extends State<ChatScreen> {
         scrolledUnderElevation: 0.5,
         iconTheme: const IconThemeData(color: _messengerBlue),
         titleSpacing: 0,
+        actions: [
+          IconButton(
+            tooltip: 'ตัวเลือกแชท',
+            icon: const Icon(Icons.more_vert),
+            onPressed: () => showChatActions(
+              context: context,
+              me: _myUid,
+              chatId: _chat.chatId(_myUid, widget.peerUid),
+              title: 'ตัวเลือกแชท',
+              leaveScreenOnDelete: true,
+            ),
+          ),
+        ],
         title: Row(
           children: [
             UserAvatar(uid: widget.peerUid, radius: 18),

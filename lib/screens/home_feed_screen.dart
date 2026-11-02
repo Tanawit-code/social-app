@@ -257,34 +257,55 @@ class AuthorName extends StatefulWidget {
 }
 
 class _AuthorNameState extends State<AuthorName> {
+  static const _unknown = 'ผู้ใช้ไม่ทราบชื่อ';
+  // cache เฉพาะ "ชื่อจริง" เท่านั้น (ไม่ cache ค่า fallback / ข้อผิดพลาด)
   static final Map<String, String> _cache = {};
   String? _name;
 
   @override
   void initState() {
     super.initState();
-    _load();
+    _resolve();
   }
 
-  Future<void> _load() async {
-    if (_cache.containsKey(widget.uid)) {
-      setState(() => _name = _cache[widget.uid]);
+  // ListView ใช้ State เดิมซ้ำเมื่อรายการเลื่อน/เรียงใหม่ (เช่นลบแชท) widget จะได้ uid ใหม่
+  // ต้องโหลดชื่อของ uid ใหม่ ไม่งั้นจะค้างชื่อของคนเดิม
+  @override
+  void didUpdateWidget(covariant AuthorName oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.uid != widget.uid) _resolve();
+  }
+
+  void _resolve() {
+    final uid = widget.uid;
+    if (uid.isEmpty) {
+      _name = _unknown;
       return;
     }
+    // กำลังจะ build อยู่แล้ว จึงกำหนดค่าตรงๆ ได้โดยไม่ต้อง setState
+    _name = _cache[uid];
+    if (_name == null) _fetch(uid);
+  }
+
+  Future<void> _fetch(String uid) async {
+    String resolved;
     try {
       final doc = await FirebaseFirestore.instance
           .collection('users')
-          .doc(widget.uid)
+          .doc(uid)
           .get();
-      final name = doc.data()?['name'] as String?;
-      final resolved = (name != null && name.trim().isNotEmpty)
-          ? name
-          : 'ผู้ใช้ไม่ทราบชื่อ';
-      _cache[widget.uid] = resolved;
-      if (mounted) setState(() => _name = resolved);
+      final name = (doc.data()?['name'] as String?)?.trim() ?? '';
+      if (name.isNotEmpty) {
+        _cache[uid] = name;
+        resolved = name;
+      } else {
+        resolved = _unknown;
+      }
     } catch (_) {
-      if (mounted) setState(() => _name = 'ผู้ใช้ไม่ทราบชื่อ');
+      resolved = _unknown;
     }
+    // ผลที่ตอบช้าและไม่ตรงกับ uid ปัจจุบันแล้ว ให้ทิ้ง
+    if (mounted && widget.uid == uid) setState(() => _name = resolved);
   }
 
   @override

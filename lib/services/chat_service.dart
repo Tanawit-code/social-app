@@ -30,18 +30,209 @@ class ChatService {
     });
   }
 
+  /// since = เวลาที่ผู้ใช้กด "ลบประวัติแชท" ล่าสุด (แสดงเฉพาะข้อความหลังเวลานั้น)
   Stream<QuerySnapshot<Map<String, dynamic>>> messages(
     String me,
-    String peer,
-  ) async* {
+    String peer, {
+    Timestamp? since,
+  }) async* {
     await ensureDirectChat(me, peer);
-    yield* _db
+    yield* messagesSince(chatId(me, peer), since);
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> messagesSince(
+    String chatId,
+    Timestamp? since,
+  ) {
+    Query<Map<String, dynamic>> q = _db
         .collection('chats')
-        .doc(chatId(me, peer))
+        .doc(chatId)
         .collection('messages')
-        .orderBy('createdAt', descending: true)
-        .limit(100)
-        .snapshots();
+        .orderBy('createdAt', descending: true);
+    if (since != null) q = q.where('createdAt', isGreaterThan: since);
+    return q.limit(100).snapshots();
+  }
+
+  // ---------- สถานะแชทรายคน: users/{uid}/chatStates/{chatId} ----------
+  // clearedAt = เวลาลบประวัติ (ซ่อนข้อความก่อนหน้านี้) / deletedAt = เวลาลบแชท (ซ่อนห้องจนกว่าจะมีข้อความใหม่)
+
+  CollectionReference<Map<String, dynamic>> _states(String uid) =>
+      _db.collection('users').doc(uid).collection('chatStates');
+
+  Stream<DocumentSnapshot<Map<String, dynamic>>> chatState(
+    String uid,
+    String chatId,
+  ) => _states(uid).doc(chatId).snapshots();
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> chatStates(String uid) =>
+      _states(uid).snapshots();
+
+  /// ลบประวัติแชท (ห้องยังอยู่ในรายการ)
+  Future<void> clearHistory(String uid, String chatId) =>
+      _states(uid).doc(chatId).set({
+        'clearedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+  /// ลบแชท (นำห้องออกจากรายการ + ล้างประวัติฝั่งเราด้วย)
+  Future<void> deleteChat(String uid, String chatId) =>
+      _states(uid).doc(chatId).set({
+        'clearedAt': FieldValue.serverTimestamp(),
+        'deletedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+  /// ห้องถูกซ่อนหรือไม่: ลบแชทไว้ และยังไม่มีข้อความใหม่หลังเวลาที่ลบ
+  static bool isHidden(Map<String, dynamic>? state, Map<String, dynamic> chat) {
+    final deletedAt = state?['deletedAt'] as Timestamp?;
+    if (deletedAt == null) return false;
+    final lastAt = chat['lastAt'] as Timestamp?;
+    if (lastAt == null) return false; // กำลังส่งข้อความ
+    return !lastAt.toDate().isAfter(deletedAt.toDate());
+  }
+
+  /// ตัวอย่างข้อความล่าสุดในรายการ: ถ้าลบประวัติไว้และยังไม่มีข้อความใหม่ ให้ว่าง
+  static String previewFor(
+    Map<String, dynamic>? state,
+    Map<String, dynamic> chat,
+  ) {
+    final clearedAt = state?['clearedAt'] as Timestamp?;
+    final lastAt = chat['lastAt'] as Timestamp?;
+    if (clearedAt != null &&
+        lastAt != null &&
+        !lastAt.toDate().isAfter(clearedAt.toDate())) {
+      return '';
+    }
+    return chat['lastMessage'] as String? ?? '';
+  }
+
+  // ---------- สมาชิกกลุ่ม ----------
+
+  /// ออกจากกลุ่มเอง — เจ้าของกลุ่มออกได้: โอนความเป็นเจ้าของให้สมาชิกคนถัดไป
+  /// ถ้าไม่มีสมาชิกอื่นเหลือ กลุ่มจะถูกลบ
+  Future<void> leaveGroup({
+    required String groupId,
+    required String uid,
+  }) async {
+    final ref = _db.collection('chats').doc(groupId);
+    final snap = await ref.get();
+    final data = snap.data();
+    if (!snap.exists || data?['type'] != 'group') {
+      throw Exception('ไม่พบกลุ่มนี้');
+    }
+    final participants = List<String>.from(data?['participants'] ?? const []);
+    if (!participants.contains(uid)) {
+      throw Exception('คุณไม่ได้เป็นสมาชิกของกลุ่มนี้');
+    }
+    if (data?['ownerId'] == uid) {
+      final others = participants.where((u) => u != uid).toList();
+      if (others.isEmpty) {
+        await ref.delete();
+        return;
+      }
+      await ref.update({
+        'participants': FieldValue.arrayRemove([uid]),
+        'ownerId': others.first,
+      });
+      try {
+        await _states(uid).doc(groupId).delete();
+      } catch (_) {}
+      return;
+    }
+    await ref.update({
+      'participants': FieldValue.arrayRemove([uid]),
+    });
+    // ล้างสถานะ "ลบแชท" ของกลุ่มนี้ เผื่อถูกเพิ่มกลับเข้ากลุ่มทีหลังจะได้เห็นห้องตามปกติ
+    try {
+      await _states(uid).doc(groupId).delete();
+    } catch (_) {}
+  }
+
+  Future<DocumentSnapshot<Map<String, dynamic>>?> _safeUser(String uid) async {
+    try {
+      return await _db.collection('users').doc(uid).get();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// เพื่อนที่ "ติดตามกันทั้งสองฝ่าย" (เงื่อนไขเดียวกับตอนสร้างกลุ่ม)
+  /// exclude = uid ที่ไม่ต้องการ เช่นสมาชิกที่อยู่ในกลุ่มแล้ว
+  Future<List<DocumentSnapshot<Map<String, dynamic>>>> mutualFriends(
+    String uid, {
+    Set<String> exclude = const {},
+  }) async {
+    final me = await _db.collection('users').doc(uid).get();
+    final following = List<String>.from(
+      me.data()?['following'] ?? const [],
+    ).where((u) => u != uid && !exclude.contains(u)).take(200).toList();
+    final docs = await Future.wait(following.map(_safeUser));
+    return [
+      for (final d in docs)
+        if (d != null &&
+            d.exists &&
+            List<String>.from(d.data()?['following'] ?? const []).contains(uid))
+          d,
+    ];
+  }
+
+  /// เจ้าของกลุ่มเพิ่มเพื่อนเข้ากลุ่ม (เพิ่มได้เฉพาะเพื่อนที่ติดตามกันทั้งสองฝ่าย รวมไม่เกิน 50 คน)
+  Future<int> addMembers({
+    required String groupId,
+    required String ownerUid,
+    required List<String> memberUids,
+  }) async {
+    final ref = _db.collection('chats').doc(groupId);
+    final snap = await ref.get();
+    final data = snap.data();
+    if (!snap.exists ||
+        data?['type'] != 'group' ||
+        data?['ownerId'] != ownerUid) {
+      throw Exception('เฉพาะเจ้าของกลุ่มเท่านั้นที่เพิ่มสมาชิกได้');
+    }
+    final current = List<String>.from(data?['participants'] ?? const []);
+    final toAdd = memberUids
+        .toSet()
+        .where((u) => u != ownerUid && !current.contains(u))
+        .toList();
+    if (toAdd.isEmpty) return 0;
+    if (current.length + toAdd.length > 50) {
+      throw Exception('กลุ่มมีสมาชิกได้สูงสุด 50 คน');
+    }
+    final owner = await _db.collection('users').doc(ownerUid).get();
+    final ownerFollowing = List<String>.from(
+      owner.data()?['following'] ?? const [],
+    );
+    for (final uid in toAdd) {
+      var ok = ownerFollowing.contains(uid);
+      if (ok) {
+        final member = await _db.collection('users').doc(uid).get();
+        ok = List<String>.from(
+          member.data()?['following'] ?? const [],
+        ).contains(ownerUid);
+      }
+      if (!ok) throw Exception('เพิ่มได้เฉพาะเพื่อนที่ติดตามกันทั้งสองฝ่าย');
+    }
+    await ref.update({'participants': FieldValue.arrayUnion(toAdd)});
+    return toAdd.length;
+  }
+
+  /// เจ้าของกลุ่มเตะสมาชิกออกจากกลุ่ม
+  Future<void> removeMember({
+    required String groupId,
+    required String ownerUid,
+    required String memberUid,
+  }) async {
+    if (memberUid == ownerUid) throw Exception('เตะเจ้าของกลุ่มไม่ได้');
+    final ref = _db.collection('chats').doc(groupId);
+    final snap = await ref.get();
+    final data = snap.data();
+    if (!snap.exists ||
+        data?['type'] != 'group' ||
+        data?['ownerId'] != ownerUid) {
+      throw Exception('เฉพาะเจ้าของกลุ่มเท่านั้นที่เตะสมาชิกได้');
+    }
+    await ref.update({
+      'participants': FieldValue.arrayRemove([memberUid]),
+    });
   }
 
   /// รายการห้องแชทของ uid (เรียงใหม่สุดฝั่ง client เพื่อไม่ต้องสร้าง composite index)

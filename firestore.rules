@@ -96,6 +96,15 @@ service cloud.firestore {
     }
 
     match /users/{uid} {
+      // สถานะแชทของฉันเอง: ลบประวัติ (clearedAt) / ลบแชท (deletedAt)
+      match /chatStates/{chatId} {
+        allow read, delete: if self(uid);
+        allow create, update: if self(uid)
+          && request.resource.data.keys().hasOnly(['clearedAt', 'deletedAt'])
+          && request.resource.data.get('clearedAt', request.time) is timestamp
+          && request.resource.data.get('deletedAt', request.time) is timestamp;
+      }
+
       allow get: if canViewProfile(uid);
       allow list: if signedIn() && !resource.data.keys().hasAny(['email']);
       allow create: if self(uid)
@@ -517,12 +526,48 @@ service cloud.firestore {
               [request.auth.uid].concat(userData(request.auth.uid).get('following', [])))))
         && request.resource.data.get('lastMessage', '') is string
         && request.resource.data.get('lastMessage', '').size() <= 4000;
+      // กลุ่มที่สมาชิกลดลงพอดี 1 คน (ใช้ทั้งออกเอง/เตะ/เจ้าของออก)
+      function groupShrinksByOne() {
+        return resource.data.get('type', '') == 'group'
+          && request.resource.data.participants is list
+          && request.resource.data.participants.size() == resource.data.participants.size() - 1
+          && resource.data.participants.hasAll(request.resource.data.participants);
+      }
       allow update: if signedIn() && resource.data.participants.hasAny([request.auth.uid])
-        && request.resource.data.participants == resource.data.participants
-        && ((request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessage', 'lastAt'])
-            && request.resource.data.lastMessage is string && request.resource.data.lastMessage.size() <= 4000)
-          || (resource.data.ownerId == request.auth.uid
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'photoUrl', 'backgroundUrl', 'backgroundColor'])));
+        && (
+          // 1) อัปเดตข้อความล่าสุด / เจ้าของแก้ตั้งค่ากลุ่ม (รายชื่อสมาชิกต้องเหมือนเดิม)
+          (request.resource.data.participants == resource.data.participants
+            && ((request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessage', 'lastAt'])
+                && request.resource.data.lastMessage is string && request.resource.data.lastMessage.size() <= 4000)
+              || (resource.data.ownerId == request.auth.uid
+                && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'photoUrl', 'backgroundUrl', 'backgroundColor']))))
+          // 2) สมาชิกทั่วไปออกจากกลุ่มเอง (ลบได้เฉพาะตัวเอง)
+          || (groupShrinksByOne()
+            && resource.data.ownerId != request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['participants'])
+            && !request.resource.data.participants.hasAny([request.auth.uid]))
+          // 3) เจ้าของเตะสมาชิกคนอื่น (เจ้าของต้องยังอยู่)
+          || (groupShrinksByOne()
+            && resource.data.ownerId == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['participants'])
+            && request.resource.data.participants.hasAny([request.auth.uid]))
+          // 4) เจ้าของออกเอง: ต้องโอนเจ้าของให้สมาชิกที่ยังเหลืออยู่
+          || (groupShrinksByOne()
+            && resource.data.ownerId == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['participants', 'ownerId'])
+            && !request.resource.data.participants.hasAny([request.auth.uid])
+            && request.resource.data.participants.hasAny([request.resource.data.ownerId]))
+          // 5) เจ้าของเพิ่มสมาชิก (เฉพาะคนที่เจ้าของติดตามอยู่ รวมไม่เกิน 50 คน)
+          || (resource.data.get('type', '') == 'group'
+            && resource.data.ownerId == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['participants'])
+            && request.resource.data.participants is list
+            && request.resource.data.participants.hasAll(resource.data.participants)
+            && request.resource.data.participants.size() > resource.data.participants.size()
+            && request.resource.data.participants.size() <= 50
+            && request.resource.data.participants.hasOnly(
+              resource.data.participants.concat(userData(request.auth.uid).get('following', []))))
+        );
       allow delete: if signedIn() && resource.data.ownerId == request.auth.uid;
       match /messages/{messageId} {
         function parentChat() { return get(/databases/$(database)/documents/chats/$(chatId)).data; }
