@@ -1,3 +1,4 @@
+import 'profile_link.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../utils/image_data.dart';
@@ -25,7 +26,15 @@ class PhotoAvatar extends StatelessWidget {
 class UserAvatar extends StatefulWidget {
   final String uid;
   final double radius;
-  const UserAvatar({required this.uid, this.radius = 20, super.key});
+
+  /// true = กดรูปแล้วเปิดโปรไฟล์ของ uid นี้
+  final bool tappable;
+  const UserAvatar({
+    required this.uid,
+    this.radius = 20,
+    this.tappable = false,
+    super.key,
+  });
 
   @override
   State<UserAvatar> createState() => _UserAvatarState();
@@ -56,6 +65,13 @@ class _UserAvatarState extends State<UserAvatar> {
 
   @override
   Widget build(BuildContext context) {
+    final avatar = _avatar();
+    return widget.tappable
+        ? ProfileLink(uid: widget.uid, child: avatar)
+        : avatar;
+  }
+
+  Widget _avatar() {
     final stream = _stream;
     if (stream == null) return PhotoAvatar(radius: widget.radius);
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(

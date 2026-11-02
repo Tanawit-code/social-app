@@ -331,7 +331,12 @@ class _SearchScreenState extends State<SearchScreen> {
                         return ListTile(
                           title: Row(
                             children: [
-                              Flexible(child: AuthorName(uid: p.authorId)),
+                              Flexible(
+                                child: AuthorName(
+                                  uid: p.authorId,
+                                  tappable: true,
+                                ),
+                              ),
                               const SizedBox(width: 6),
                               PostPrivacyIcon(
                                 audience: p.audience,

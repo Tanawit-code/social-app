@@ -1364,8 +1364,12 @@ class _FeedControlsSheet extends StatelessWidget {
                       .map(
                         (doc) => ListTile(
                           dense: true,
-                          leading: UserAvatar(uid: doc.id, radius: 18),
-                          title: AuthorName(uid: doc.id),
+                          leading: UserAvatar(
+                            uid: doc.id,
+                            radius: 18,
+                            tappable: true,
+                          ),
+                          title: AuthorName(uid: doc.id, tappable: true),
                           trailing: TextButton(
                             onPressed: () =>
                                 postService.unmuteAuthor(uid, doc.id),

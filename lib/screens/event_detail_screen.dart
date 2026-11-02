@@ -1,3 +1,4 @@
+import '../widgets/profile_link.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../models/event_model.dart';
@@ -100,10 +101,13 @@ class EventDetailScreen extends StatelessWidget {
               const SizedBox(height: 14),
               Row(
                 children: [
-                  UserAvatar(uid: event.hostId, radius: 17),
+                  UserAvatar(uid: event.hostId, radius: 17, tappable: true),
                   const SizedBox(width: 8),
                   const Text('จัดโดย '),
-                  _EventHostName(uid: event.hostId),
+                  ProfileLink(
+                    uid: event.hostId,
+                    child: _EventHostName(uid: event.hostId),
+                  ),
                 ],
               ),
               const Divider(height: 28),

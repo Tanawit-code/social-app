@@ -1,3 +1,4 @@
+import '../widgets/profile_link.dart';
 import '../widgets/privacy_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -263,7 +264,15 @@ String formatRelativeTime(Timestamp? ts) {
 class AuthorName extends StatefulWidget {
   final String uid;
   final TextStyle? style;
-  const AuthorName({required this.uid, this.style, super.key});
+
+  /// true = กดชื่อแล้วเปิดโปรไฟล์ของ uid นี้
+  final bool tappable;
+  const AuthorName({
+    required this.uid,
+    this.style,
+    this.tappable = false,
+    super.key,
+  });
 
   @override
   State<AuthorName> createState() => _AuthorNameState();
@@ -323,11 +332,12 @@ class _AuthorNameState extends State<AuthorName> {
 
   @override
   Widget build(BuildContext context) {
-    return Text(
+    final text = Text(
       _name ?? 'กำลังโหลด...',
       overflow: TextOverflow.ellipsis,
       style: widget.style ?? const TextStyle(fontWeight: FontWeight.w600),
     );
+    return widget.tappable ? ProfileLink(uid: widget.uid, child: text) : text;
   }
 }
 
@@ -751,6 +761,7 @@ class _PostCardState extends State<PostCard> {
                         ),
                         if (post.sharedAuthorId != null)
                           AuthorName(
+                            tappable: true,
                             uid: post.sharedAuthorId!,
                             style: const TextStyle(fontSize: 12),
                           ),
@@ -1353,7 +1364,11 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            UserAvatar(uid: data['authorId'] ?? '', radius: 16),
+                            UserAvatar(
+                              uid: data['authorId'] ?? '',
+                              radius: 16,
+                              tappable: true,
+                            ),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Container(
@@ -1369,6 +1384,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     AuthorName(
+                                      tappable: true,
                                       uid: data['authorId'] ?? '',
                                       style: const TextStyle(
                                         fontSize: 12,

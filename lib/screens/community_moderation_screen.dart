@@ -1,3 +1,4 @@
+import '../widgets/profile_link.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../models/community_model.dart';
@@ -45,8 +46,14 @@ class CommunityModerationScreen extends StatelessWidget {
                     children: snap.data!.docs
                         .map(
                           (request) => ListTile(
-                            leading: UserAvatar(uid: request.id),
-                            title: _name(request.id),
+                            leading: UserAvatar(
+                              uid: request.id,
+                              tappable: true,
+                            ),
+                            title: ProfileLink(
+                              uid: request.id,
+                              child: _name(request.id),
+                            ),
                             subtitle: const Text('ขอเข้าร่วมชุมชน'),
                             trailing: Wrap(
                               children: [
@@ -113,8 +120,11 @@ class CommunityModerationScreen extends StatelessWidget {
                       final memberRole =
                           member.data()['role'] as String? ?? 'member';
                       return ListTile(
-                        leading: UserAvatar(uid: memberId),
-                        title: _name(memberId),
+                        leading: UserAvatar(uid: memberId, tappable: true),
+                        title: ProfileLink(
+                          uid: memberId,
+                          child: _name(memberId),
+                        ),
                         subtitle: Text(
                           memberRole == 'owner'
                               ? 'เจ้าของ'
@@ -168,8 +178,11 @@ class CommunityModerationScreen extends StatelessWidget {
                     children: snap.data!.docs
                         .map(
                           (doc) => ListTile(
-                            leading: UserAvatar(uid: doc.id),
-                            title: _name(doc.id),
+                            leading: UserAvatar(uid: doc.id, tappable: true),
+                            title: ProfileLink(
+                              uid: doc.id,
+                              child: _name(doc.id),
+                            ),
                             trailing: TextButton(
                               onPressed: () =>
                                   service.unbanMember(community.id, doc.id),

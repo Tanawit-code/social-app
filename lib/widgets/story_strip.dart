@@ -1,3 +1,4 @@
+import 'profile_link.dart';
 import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -351,9 +352,12 @@ class _StoryViewerState extends State<_StoryViewer> {
               left: 16,
               child: Row(
                 children: [
-                  UserAvatar(uid: story.authorId, radius: 18),
+                  UserAvatar(uid: story.authorId, radius: 18, tappable: true),
                   const SizedBox(width: 8),
-                  _StoryAuthor(uid: story.authorId),
+                  ProfileLink(
+                    uid: story.authorId,
+                    child: _StoryAuthor(uid: story.authorId),
+                  ),
                 ],
               ),
             ),

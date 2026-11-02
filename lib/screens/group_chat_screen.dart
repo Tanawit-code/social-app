@@ -451,8 +451,12 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                       itemBuilder: (context, index) {
                         final memberUid = ordered[index];
                         return ListTile(
-                          leading: UserAvatar(uid: memberUid, radius: 20),
-                          title: AuthorName(uid: memberUid),
+                          leading: UserAvatar(
+                            uid: memberUid,
+                            radius: 20,
+                            tappable: true,
+                          ),
+                          title: AuthorName(uid: memberUid, tappable: true),
                           subtitle: memberUid == _uid
                               ? const Text('คุณ')
                               : null,
@@ -740,7 +744,11 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.end,
                                 children: [
                                   if (!mine) ...[
-                                    UserAvatar(uid: sender, radius: 14),
+                                    UserAvatar(
+                                      uid: sender,
+                                      radius: 14,
+                                      tappable: true,
+                                    ),
                                     const SizedBox(width: 6),
                                   ],
                                   Flexible(

@@ -245,8 +245,12 @@ class _PageDetailScreenState extends State<PageDetailScreen> {
                       ...requests.map(
                         (uid) => ListTile(
                           dense: true,
-                          leading: UserAvatar(uid: uid, radius: 18),
-                          title: AuthorName(uid: uid),
+                          leading: UserAvatar(
+                            uid: uid,
+                            radius: 18,
+                            tappable: true,
+                          ),
+                          title: AuthorName(uid: uid, tappable: true),
                           trailing: TextButton(
                             onPressed: () => _approve(uid),
                             child: const Text('อนุมัติ'),

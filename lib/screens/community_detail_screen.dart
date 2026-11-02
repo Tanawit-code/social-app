@@ -1,3 +1,4 @@
+import '../widgets/profile_link.dart';
 import '../widgets/privacy_icon.dart';
 import 'package:share_plus/share_plus.dart';
 import '../widgets/reactions.dart';
@@ -463,14 +464,23 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
                                     children: [
                                       Row(
                                         children: [
-                                          UserAvatar(uid: authorId, radius: 18),
+                                          UserAvatar(
+                                            uid: authorId,
+                                            radius: 18,
+                                            tappable: true,
+                                          ),
                                           const SizedBox(width: 8),
                                           Expanded(
                                             child: Column(
                                               crossAxisAlignment:
                                                   CrossAxisAlignment.start,
                                               children: [
-                                                _MemberName(uid: authorId),
+                                                ProfileLink(
+                                                  uid: authorId,
+                                                  child: _MemberName(
+                                                    uid: authorId,
+                                                  ),
+                                                ),
                                                 Row(
                                                   children: [
                                                     Text(
@@ -891,8 +901,15 @@ class _CommunityCommentsSheetState extends State<_CommunityCommentsSheet> {
                   final data = doc.data();
                   final authorId = data['authorId'] as String? ?? '';
                   return ListTile(
-                    leading: UserAvatar(uid: authorId, radius: 18),
-                    title: _MemberName(uid: authorId),
+                    leading: UserAvatar(
+                      uid: authorId,
+                      radius: 18,
+                      tappable: true,
+                    ),
+                    title: ProfileLink(
+                      uid: authorId,
+                      child: _MemberName(uid: authorId),
+                    ),
                     subtitle: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [

@@ -59,9 +59,14 @@ class ReelsScreen extends StatelessWidget {
                         children: [
                           Row(
                             children: [
-                              UserAvatar(uid: reel.authorId, radius: 18),
+                              UserAvatar(
+                                uid: reel.authorId,
+                                radius: 18,
+                                tappable: true,
+                              ),
                               const SizedBox(width: 8),
                               AuthorName(
+                                tappable: true,
                                 uid: reel.authorId,
                                 style: const TextStyle(
                                   color: Colors.white,

@@ -168,10 +168,11 @@ class _ChatScreenState extends State<ChatScreen> {
         ],
         title: Row(
           children: [
-            UserAvatar(uid: widget.peerUid, radius: 18),
+            UserAvatar(uid: widget.peerUid, radius: 18, tappable: true),
             const SizedBox(width: 10),
             Expanded(
               child: AuthorName(
+                tappable: true,
                 uid: widget.peerUid,
                 style: const TextStyle(
                   fontWeight: FontWeight.bold,
@@ -558,7 +559,9 @@ class _MessageRow extends StatelessWidget {
             // เหมือน Messenger: โชว์รูปเฉพาะข้อความล่างสุดของกลุ่ม ที่เหลือเว้นที่ไว้
             SizedBox(
               width: 28,
-              child: last ? UserAvatar(uid: peerUid, radius: 14) : null,
+              child: last
+                  ? UserAvatar(uid: peerUid, radius: 14, tappable: true)
+                  : null,
             ),
             const SizedBox(width: 6),
           ],
