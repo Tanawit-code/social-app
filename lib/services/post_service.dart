@@ -393,26 +393,32 @@ class PostService {
     required String uid,
     required String type, // 'like' | 'dislike' | emoji code
   }) async {
-    final reactionRef = _posts.doc(postId).collection('reactions').doc(uid);
-    final existing = await reactionRef.get();
+    final postRef = _posts.doc(postId);
+    final reactionRef = postRef.collection('reactions').doc(uid);
 
     await FirebaseFirestore.instance.runTransaction((tx) async {
-      final postSnap = await tx.get(_posts.doc(postId));
-      int likeCount = postSnap['likeCount'] ?? 0;
-      int dislikeCount = postSnap['dislikeCount'] ?? 0;
+      final postSnap = await tx.get(postRef);
+      final reactionSnap = await tx.get(reactionRef);
+      final oldType = reactionSnap.data()?['type'] as String?;
+      var likeCount = (postSnap.data()?['likeCount'] as num?)?.toInt() ?? 0;
+      var dislikeCount =
+          (postSnap.data()?['dislikeCount'] as num?)?.toInt() ?? 0;
 
-      if (existing.exists) {
-        final oldType = existing['type'];
-        if (oldType == 'like') likeCount--;
-        if (oldType == 'dislike') dislikeCount--;
+      if (oldType == 'like') likeCount--;
+      if (oldType == 'dislike') dislikeCount--;
+
+      if (oldType == type) {
+        // กดชนิดเดิมซ้ำ = ยกเลิกรีแอคชัน
+        tx.delete(reactionRef);
+      } else {
+        if (type == 'like') likeCount++;
+        if (type == 'dislike') dislikeCount++;
+        tx.set(reactionRef, {'type': type});
       }
-      if (type == 'like') likeCount++;
-      if (type == 'dislike') dislikeCount++;
 
-      tx.set(reactionRef, {'type': type});
-      tx.update(_posts.doc(postId), {
-        'likeCount': likeCount,
-        'dislikeCount': dislikeCount,
+      tx.update(postRef, {
+        'likeCount': likeCount < 0 ? 0 : likeCount,
+        'dislikeCount': dislikeCount < 0 ? 0 : dislikeCount,
       });
     });
   }

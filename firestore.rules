@@ -238,7 +238,8 @@ service cloud.firestore {
         return exists(reactionPath(request.auth.uid)) ? get(reactionPath(request.auth.uid)).data.type : null;
       }
       function resultingReactionType() {
-        return getAfter(reactionPath(request.auth.uid)).data.type;
+        // ถ้ายกเลิกรีแอคชัน (ลบเอกสาร) หลังเขียนเสร็จจะไม่มีเอกสารนี้ -> ถือว่าไม่มีรีแอคชัน
+        return existsAfter(reactionPath(request.auth.uid)) ? getAfter(reactionPath(request.auth.uid)).data.type : null;
       }
       function validSharedPostSource(original) {
         return original.get('sharedPostId', null) == null

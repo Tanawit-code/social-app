@@ -23,6 +23,7 @@ const {
   query,
   where,
   serverTimestamp,
+  writeBatch,
   arrayUnion,
   arrayRemove,
   Timestamp,
@@ -312,6 +313,61 @@ describe('posts', () => {
       await seedPost('p1', 'alice', { audience: 'private' });
       await assertFails(setDoc(doc(asUser('bob'), 'posts/p1/comments/c1'), newComment('bob')));
     });
+  });
+});
+
+// ======================================================================
+describe('รีแอคชันโพสต์ (เขียนรีแอคชัน + ยอดนับพร้อมกันในครั้งเดียว)', () => {
+  const reactionPath = 'posts/p1/reactions/bob';
+
+  /** ทำเหมือนที่แอปทำ: เขียน/ลบเอกสารรีแอคชัน และอัปเดตยอดในโพสต์ใน batch เดียว */
+  async function react({ set, remove, counts }) {
+    const db = asUser('bob');
+    const batch = writeBatch(db);
+    if (set) batch.set(doc(db, reactionPath), { type: set });
+    if (remove) batch.delete(doc(db, reactionPath));
+    batch.update(doc(db, 'posts/p1'), counts);
+    return batch.commit();
+  }
+
+  it('กดไลก์ครั้งแรก ยอดไลก์ +1', async () => {
+    await seedPost('p1', 'alice');
+    await assertSucceeds(react({ set: 'like', counts: { likeCount: 1, dislikeCount: 0 } }));
+  });
+
+  it('[บั๊กที่เจอ] กดไลก์ซ้ำเพื่อยกเลิก (ลบรีแอคชัน ยอดไลก์ -1) ต้องทำได้', async () => {
+    await seedPost('p1', 'alice', { likeCount: 1 });
+    await seed((db) => setDoc(doc(db, reactionPath), { type: 'like' }));
+    await assertSucceeds(react({ remove: true, counts: { likeCount: 0, dislikeCount: 0 } }));
+  });
+
+  it('เปลี่ยนจากไลก์เป็นดิสไลก์ ยอดไลก์ -1 ดิสไลก์ +1', async () => {
+    await seedPost('p1', 'alice', { likeCount: 1 });
+    await seed((db) => setDoc(doc(db, reactionPath), { type: 'like' }));
+    await assertSucceeds(react({ set: 'dislike', counts: { likeCount: 0, dislikeCount: 1 } }));
+  });
+
+  it('เปลี่ยนเป็นอีโมจิอื่น (love) ยอดไลก์ -1 ดิสไลก์เท่าเดิม', async () => {
+    await seedPost('p1', 'alice', { likeCount: 1 });
+    await seed((db) => setDoc(doc(db, reactionPath), { type: 'like' }));
+    await assertSucceeds(react({ set: 'love', counts: { likeCount: 0, dislikeCount: 0 } }));
+  });
+
+  it('กดไลก์แต่ยอดเพิ่มมากกว่า 1 ไม่ได้', async () => {
+    await seedPost('p1', 'alice');
+    await assertFails(react({ set: 'like', counts: { likeCount: 5, dislikeCount: 0 } }));
+  });
+
+  it('ยกเลิกรีแอคชันแต่ไม่ลดยอดไม่ได้', async () => {
+    await seedPost('p1', 'alice', { likeCount: 1 });
+    await seed((db) => setDoc(doc(db, reactionPath), { type: 'like' }));
+    await assertFails(react({ remove: true, counts: { likeCount: 1, dislikeCount: 0 } }));
+  });
+
+  it('เขียนรีแอคชันแทนคนอื่นไม่ได้', async () => {
+    await seedPost('p1', 'alice');
+    const db = asUser('bob');
+    await assertFails(setDoc(doc(db, 'posts/p1/reactions/carol'), { type: 'like' }));
   });
 });
 
