@@ -347,11 +347,13 @@ service cloud.firestore {
     match /stories/{storyId} {
       allow get, list: if canViewStory(resource.data);
       allow create: if signedIn()
-        && request.resource.data.keys().hasOnly(['authorId', 'text', 'mediaUrl', 'audience', 'createdAt', 'expiresAt'])
+        && request.resource.data.keys().hasOnly(['authorId', 'text', 'mediaUrl', 'audience', 'backgroundColor', 'createdAt', 'expiresAt'])
         && request.resource.data.authorId == request.auth.uid
         && request.resource.data.text is string && request.resource.data.text.size() <= 500
         && (request.resource.data.get('mediaUrl', null) is string || request.resource.data.get('mediaUrl', null) == null)
         && request.resource.data.get('audience', 'public') in ['public', 'friends', 'private']
+        && request.resource.data.get('backgroundColor', '#342653') is string
+        && request.resource.data.get('backgroundColor', '#342653').matches('^#[0-9A-Fa-f]{6}$')
         && (request.resource.data.text.size() > 0 || request.resource.data.get('mediaUrl', null) != null)
         && (request.resource.data.get('mediaUrl', null) == null || request.resource.data.mediaUrl.size() <= 350000)
         && request.resource.data.createdAt == request.time
@@ -368,17 +370,23 @@ service cloud.firestore {
     match /communities/{communityId} {
       allow get, list: if signedIn();
       allow create: if signedIn()
-        && request.resource.data.keys().hasOnly(['name', 'description', 'ownerId', 'privacy', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['name', 'description', 'ownerId', 'privacy', 'createdAt', 'coverUrl', 'themeColor'])
         && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 60
         && request.resource.data.description is string && request.resource.data.description.size() <= 500
         && request.resource.data.ownerId == request.auth.uid
         && request.resource.data.privacy in ['public', 'private']
-        && request.resource.data.createdAt == request.time;
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.get('coverUrl', '') is string
+        && request.resource.data.get('coverUrl', '').size() <= 450000
+        && request.resource.data.get('themeColor', '#6750A4').matches('^#[0-9A-Fa-f]{6}$');
       allow update: if signedIn() && resource.data.ownerId == request.auth.uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'description', 'privacy'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'description', 'privacy', 'coverUrl', 'themeColor'])
         && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 60
         && request.resource.data.description is string && request.resource.data.description.size() <= 500
-        && request.resource.data.privacy in ['public', 'private'];
+        && request.resource.data.privacy in ['public', 'private']
+        && request.resource.data.get('coverUrl', '') is string
+        && request.resource.data.get('coverUrl', '').size() <= 450000
+        && request.resource.data.get('themeColor', '#6750A4').matches('^#[0-9A-Fa-f]{6}$');
       allow delete: if signedIn() && resource.data.ownerId == request.auth.uid;
 
       match /members/{memberId} {
@@ -595,7 +603,10 @@ service cloud.firestore {
         && request.resource.data.get('moderatorIds', []) == [] && request.resource.data.get('bannedIds', []) == []
         && request.resource.data.privacy in ['public', 'private'];
       allow update: if signedIn() && ((resource.data.ownerId == request.auth.uid
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'description', 'photoUrl', 'privacy', 'memberIds', 'pendingRequests', 'moderatorIds', 'bannedIds']))
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'description', 'photoUrl', 'coverUrl', 'themeColor', 'privacy', 'memberIds', 'pendingRequests', 'moderatorIds', 'bannedIds'])
+          && request.resource.data.get('coverUrl', '') is string
+          && request.resource.data.get('coverUrl', '').size() <= 450000
+          && request.resource.data.get('themeColor', '#6750A4').matches('^#[0-9A-Fa-f]{6}$'))
         || moderatorEdit()
         || (resource.data.privacy == 'public' && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberIds'])
           && notBannedSelf()

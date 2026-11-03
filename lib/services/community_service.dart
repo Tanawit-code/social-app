@@ -39,6 +39,21 @@ class CommunityService {
     return ref.id;
   }
 
+
+  Future<void> updateBrand({
+    required String communityId,
+    required String ownerId,
+    required String coverUrl,
+    required String themeColor,
+  }) async {
+    final ref = _communities.doc(communityId);
+    final snap = await ref.get();
+    if (!snap.exists || snap.data()?['ownerId'] != ownerId) {
+      throw Exception('เฉพาะเจ้าของชุมชนเท่านั้นที่ตกแต่งได้');
+    }
+    await ref.update({'coverUrl': coverUrl, 'themeColor': themeColor});
+  }
+
   Future<void> join(Community community, String uid) async {
     final ref = _communities.doc(community.id);
     if (community.privacy == 'private') {

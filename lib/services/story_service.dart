@@ -112,6 +112,7 @@ class StoryService {
     required String text,
     String? mediaUrl,
     String audience = 'public',
+    String backgroundColor = '#342653',
   }) async {
     final now = DateTime.now();
     await _db.collection('stories').add({
@@ -119,6 +120,7 @@ class StoryService {
       'text': text.trim(),
       'mediaUrl': mediaUrl,
       'audience': audience,
+      'backgroundColor': backgroundColor,
       'createdAt': FieldValue.serverTimestamp(),
       'expiresAt': Timestamp.fromDate(now.add(const Duration(hours: 24))),
     });

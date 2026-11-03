@@ -6,6 +6,7 @@ class Story {
   final String text;
   final String? mediaUrl;
   final String audience;
+  final String backgroundColor;
   final Timestamp? createdAt;
   final Timestamp? expiresAt;
 
@@ -15,6 +16,7 @@ class Story {
     required this.text,
     this.mediaUrl,
     this.audience = 'public',
+    this.backgroundColor = '#342653',
     this.createdAt,
     this.expiresAt,
   });
@@ -27,6 +29,7 @@ class Story {
       text: data['text'] as String? ?? '',
       mediaUrl: data['mediaUrl'] as String?,
       audience: data['audience'] as String? ?? 'public',
+      backgroundColor: data['backgroundColor'] as String? ?? '#342653',
       createdAt: data['createdAt'] as Timestamp?,
       expiresAt: data['expiresAt'] as Timestamp?,
     );

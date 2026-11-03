@@ -100,6 +100,7 @@ class _CreateStorySheetState extends State<_CreateStorySheet> {
   final _text = TextEditingController();
   Uint8List? _image;
   String _audience = 'public';
+  String _backgroundColor = '#342653';
   bool _busy = false;
 
   @override
@@ -136,6 +137,7 @@ class _CreateStorySheetState extends State<_CreateStorySheet> {
         text: _text.text,
         mediaUrl: media,
         audience: _audience,
+        backgroundColor: _backgroundColor,
       );
       if (!mounted) return;
       Navigator.of(context).pop();
@@ -180,6 +182,55 @@ class _CreateStorySheetState extends State<_CreateStorySheet> {
               padding: const EdgeInsets.only(bottom: 10),
               child: Image.memory(_image!, height: 180, fit: BoxFit.cover),
             ),
+          const SizedBox(height: 10),
+          const Text(
+            'สีพื้นหลัง Story',
+            style: TextStyle(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 10,
+            children:
+                [
+                      '#342653',
+                      '#1565C0',
+                      '#00897B',
+                      '#C62828',
+                      '#EF6C00',
+                      '#AD1457',
+                      '#263238',
+                    ]
+                    .map(
+                      (value) => InkWell(
+                        onTap: _busy
+                            ? null
+                            : () => setState(() => _backgroundColor = value),
+                        child: Container(
+                          width: 30,
+                          height: 30,
+                          decoration: BoxDecoration(
+                            color: _storyColor(value),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: _backgroundColor == value
+                                  ? Colors.white
+                                  : Colors.grey,
+                              width: _backgroundColor == value ? 3 : 1,
+                            ),
+                          ),
+                          child: _backgroundColor == value
+                              ? const Icon(
+                                  Icons.check,
+                                  size: 16,
+                                  color: Colors.white,
+                                )
+                              : null,
+                        ),
+                      ),
+                    )
+                    .toList(),
+          ),
+          const SizedBox(height: 10),
           Row(
             children: [
               OutlinedButton.icon(
@@ -330,7 +381,7 @@ class _StoryViewerState extends State<_StoryViewer> {
                 fit: BoxFit.contain,
               )
             else
-              const ColoredBox(color: Color(0xFF342653)),
+              ColoredBox(color: _storyColor(story.backgroundColor)),
             if (story.text.isNotEmpty)
               Center(
                 child: Padding(
@@ -390,4 +441,10 @@ class _StoryAuthor extends StatelessWidget {
       style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
     ),
   );
+}
+
+Color _storyColor(String value) {
+  final parsed =
+      int.tryParse(value.replaceFirst('#', ''), radix: 16) ?? 0x342653;
+  return Color(0xFF000000 | parsed);
 }

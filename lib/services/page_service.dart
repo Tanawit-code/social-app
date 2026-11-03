@@ -65,6 +65,21 @@ class PageService {
     await ref.update({'photoUrl': photoUrl});
   }
 
+
+  Future<void> updateBrand({
+    required String pageId,
+    required String ownerId,
+    required String coverUrl,
+    required String themeColor,
+  }) async {
+    final ref = _pages.doc(pageId);
+    final snap = await ref.get();
+    if (!snap.exists || snap.data()?['ownerId'] != ownerId) {
+      throw Exception('เฉพาะเจ้าของเพจเท่านั้นที่ตกแต่งได้');
+    }
+    await ref.update({'coverUrl': coverUrl, 'themeColor': themeColor});
+  }
+
   Future<void> joinPublicPage(String pageId, String uid) async {
     final ref = _pages.doc(pageId);
     await _db.runTransaction((transaction) async {
