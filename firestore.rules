@@ -357,11 +357,13 @@ service cloud.firestore {
     match /stories/{storyId} {
       allow get, list: if canViewStory(resource.data);
       allow create: if signedIn()
-        && request.resource.data.keys().hasOnly(['authorId', 'text', 'mediaUrl', 'audience', 'createdAt', 'expiresAt'])
+        && request.resource.data.keys().hasOnly(['authorId', 'text', 'mediaUrl', 'audience', 'backgroundColor', 'createdAt', 'expiresAt'])
         && request.resource.data.authorId == request.auth.uid
         && request.resource.data.text is string && request.resource.data.text.size() <= 500
         && (request.resource.data.get('mediaUrl', null) is string || request.resource.data.get('mediaUrl', null) == null)
         && request.resource.data.get('audience', 'public') in ['public', 'friends', 'private']
+        && request.resource.data.get('backgroundColor', '#342653') is string
+        && request.resource.data.get('backgroundColor', '#342653').matches('^#[0-9a-fA-F]{6}$')
         && (request.resource.data.text.size() > 0 || request.resource.data.get('mediaUrl', null) != null)
         && (request.resource.data.get('mediaUrl', null) == null || request.resource.data.mediaUrl.size() <= 350000)
         && request.resource.data.createdAt == request.time
