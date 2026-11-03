@@ -11,6 +11,7 @@ import '../utils/image_data.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/chat_actions.dart';
 import '../widgets/chat_media.dart';
+import '../widgets/report_dialog.dart';
 import '../services/chat_media_service.dart';
 import 'add_group_members_screen.dart';
 import 'home_feed_screen.dart' show AuthorName;
@@ -573,6 +574,49 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     return '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
   }
 
+  Future<void> _messageMenu(
+    String messageId,
+    String sender,
+    bool mine,
+    bool canDelete,
+  ) async {
+    if (mine) return _deleteMessage(messageId, mine);
+    if (!canDelete) return _reportMessage(messageId, sender);
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: const Text('ลบข้อความ'),
+              onTap: () => Navigator.pop(ctx, 'delete'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.flag_outlined),
+              title: const Text('รายงานข้อความ'),
+              onTap: () => Navigator.pop(ctx, 'report'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (choice == 'delete') await _deleteMessage(messageId, mine);
+    if (choice == 'report') await _reportMessage(messageId, sender);
+  }
+
+  Future<void> _reportMessage(String messageId, String sender) {
+    return showReportFlow(
+      context,
+      title: 'รายงานข้อความในกลุ่ม',
+      targetType: 'group_message',
+      targetId: '${widget.groupId}_$messageId',
+      reportedUid: sender,
+      contextId: widget.groupId,
+    );
+  }
+
   Future<void> _deleteMessage(String messageId, bool mine) async {
     final ok = await showDialog<bool>(
       context: context,
@@ -774,14 +818,25 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                                         if (!mine)
                                           AuthorNameInline(uid: sender),
                                         GestureDetector(
-                                          onLongPress: canDelete
-                                              ? () =>
-                                                    _deleteMessage(msgId, mine)
-                                              : null,
-                                          onSecondaryTap: canDelete
-                                              ? () =>
-                                                    _deleteMessage(msgId, mine)
-                                              : null,
+                                          // กดค้าง/คลิกขวา: ของเรา = ลบ, ของคนอื่น = รายงาน (เจ้าของกลุ่มเลือกลบหรือรายงานได้)
+                                          onLongPress:
+                                              deleted || (!canDelete && mine)
+                                              ? null
+                                              : () => _messageMenu(
+                                                  msgId,
+                                                  sender,
+                                                  mine,
+                                                  canDelete,
+                                                ),
+                                          onSecondaryTap:
+                                              deleted || (!canDelete && mine)
+                                              ? null
+                                              : () => _messageMenu(
+                                                  msgId,
+                                                  sender,
+                                                  mine,
+                                                  canDelete,
+                                                ),
                                           child: Container(
                                             margin: const EdgeInsets.only(
                                               top: 2,

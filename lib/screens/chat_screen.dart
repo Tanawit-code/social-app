@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import '../widgets/report_dialog.dart';
 import '../services/auth_service.dart';
 import '../services/chat_service.dart';
-import '../services/safety_service.dart';
 import '../services/chat_media_service.dart';
 import '../services/notification_service.dart';
 import '../widgets/user_avatar.dart';
@@ -430,41 +430,16 @@ class _MessageRow extends StatelessWidget {
     }
   }
 
-  Future<void> _reportMessage(BuildContext context) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('รายงานข้อความ'),
-        content: const Text('ส่งข้อความนี้ให้ทีมดูแลตรวจสอบหรือไม่?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('ยกเลิก'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('รายงาน'),
-          ),
-        ],
-      ),
+  Future<void> _reportMessage(BuildContext context) {
+    final me = AuthService().currentUser?.uid ?? '';
+    return showReportFlow(
+      context,
+      title: 'รายงานข้อความ',
+      targetType: 'message',
+      targetId: '${peerUid}_$messageId',
+      reportedUid: peerUid,
+      contextId: ChatService().chatId(me, peerUid),
     );
-    if (ok != true) return;
-    try {
-      await SafetyService().report(
-        targetType: 'message',
-        targetId: '${peerUid}_$messageId',
-        reason: 'ข้อความไม่เหมาะสม',
-      );
-      if (context.mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('ส่งรายงานแล้ว')));
-    } catch (e) {
-      if (context.mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('ส่งรายงานไม่สำเร็จ: $e')));
-    }
   }
 
   @override

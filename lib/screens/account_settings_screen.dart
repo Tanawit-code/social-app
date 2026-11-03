@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
 import '../services/push_notification_service.dart';
+import '../services/safety_service.dart';
+import 'admin_reports_screen.dart';
 
 class AccountSettingsScreen extends StatefulWidget {
   const AccountSettingsScreen({super.key});
@@ -17,6 +19,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
   final _email = TextEditingController();
   final _password = TextEditingController();
   bool _busy = false;
+  late final Future<bool> _isAdmin = SafetyService.isAdmin();
 
   String get _uid => _auth.currentUser?.uid ?? '';
 
@@ -178,6 +181,33 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                     snapshot.data?.data() ?? const <String, dynamic>{};
                 return ListView(
                   children: [
+                    FutureBuilder<bool>(
+                      future: _isAdmin,
+                      builder: (context, adminSnap) => adminSnap.data == true
+                          ? Column(
+                              children: [
+                                ListTile(
+                                  leading: const Icon(
+                                    Icons.admin_panel_settings_outlined,
+                                  ),
+                                  title: const Text('รายงานทั้งหมด (แอดมิน)'),
+                                  subtitle: const Text(
+                                    'ตรวจสอบรายงานโพสต์ ผู้ใช้ เพจ ชุมชน และอื่นๆ',
+                                  ),
+                                  trailing: const Icon(Icons.chevron_right),
+                                  onTap: () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          const AdminReportsScreen(),
+                                    ),
+                                  ),
+                                ),
+                                const Divider(),
+                              ],
+                            )
+                          : const SizedBox.shrink(),
+                    ),
                     ListTile(
                       leading: Icon(
                         user.emailVerified

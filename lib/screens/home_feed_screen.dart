@@ -8,6 +8,7 @@ import '../services/auth_service.dart';
 import '../services/post_service.dart';
 import 'create_post_screen.dart';
 import 'profile_screen.dart';
+import '../widgets/report_dialog.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/post_media.dart';
 import 'pages_screen.dart';
@@ -531,13 +532,12 @@ class _PostCardState extends State<PostCard> {
   }
 
   void _report() {
-    showDialog(
-      context: context,
-      builder: (_) => _ReportDialog(
-        postId: post.id,
-        currentUid: currentUid,
-        postService: postService,
-      ),
+    showReportFlow(
+      context,
+      title: 'รายงานโพสต์',
+      targetType: 'post',
+      targetId: post.id,
+      reportedUid: post.authorId,
     );
   }
 
@@ -1287,25 +1287,14 @@ class _CommentsSheetState extends State<_CommentsSheet> {
     }
   }
 
-  Future<void> _reportComment(String commentId) async {
-    try {
-      await widget.postService.reportTarget(
+  Future<void> _reportComment(String commentId, String authorId) =>
+      showReportFlow(
+        context,
+        title: 'รายงานความคิดเห็น',
         targetType: 'comment',
         targetId: '${widget.postId}_$commentId',
-        reporterId: widget.currentUid,
-        reason: 'ความคิดเห็นไม่เหมาะสม',
+        reportedUid: authorId,
       );
-      if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('ส่งรายงานความคิดเห็นแล้ว')),
-        );
-    } catch (error) {
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('ส่งรายงานไม่สำเร็จ: $error')));
-    }
-  }
 
   Future<void> _send() async {
     final text = _controller.text.trim();
@@ -1429,7 +1418,10 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                               )
                             else
                               PopupMenuButton<String>(
-                                onSelected: (_) => _reportComment(docs[i].id),
+                                onSelected: (_) => _reportComment(
+                                  docs[i].id,
+                                  (data['authorId'] ?? '') as String,
+                                ),
                                 itemBuilder: (_) => const [
                                   PopupMenuItem(
                                     value: 'report',
@@ -1486,87 +1478,6 @@ class _CommentsSheetState extends State<_CommentsSheet> {
           ],
         ),
       ),
-    );
-  }
-}
-
-class _ReportDialog extends StatefulWidget {
-  final String postId;
-  final String currentUid;
-  final PostService postService;
-
-  const _ReportDialog({
-    required this.postId,
-    required this.currentUid,
-    required this.postService,
-  });
-
-  @override
-  State<_ReportDialog> createState() => _ReportDialogState();
-}
-
-class _ReportDialogState extends State<_ReportDialog> {
-  String _reason = 'สแปม';
-  bool _sending = false;
-
-  final _reasons = ['สแปม', 'เนื้อหาไม่เหมาะสม', 'ความรุนแรง/คุกคาม', 'อื่นๆ'];
-
-  Future<void> _send() async {
-    setState(() => _sending = true);
-    try {
-      await widget.postService.reportPost(
-        postId: widget.postId,
-        reporterId: widget.currentUid,
-        reason: _reason,
-      );
-      if (!mounted) return;
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('ส่งรายงานแล้ว ขอบคุณที่แจ้งให้ทราบ')),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('ส่งรายงานไม่สำเร็จ: $e')));
-    } finally {
-      if (mounted) setState(() => _sending = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('รายงานโพสต์'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: _reasons
-            .map(
-              (r) => RadioListTile<String>(
-                title: Text(r),
-                value: r,
-                groupValue: _reason,
-                onChanged: (v) => setState(() => _reason = v!),
-              ),
-            )
-            .toList(),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('ยกเลิก'),
-        ),
-        FilledButton(
-          onPressed: _sending ? null : _send,
-          child: _sending
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Text('ส่งรายงาน'),
-        ),
-      ],
     );
   }
 }

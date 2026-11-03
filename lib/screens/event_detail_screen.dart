@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../models/event_model.dart';
 import '../services/auth_service.dart';
 import '../services/event_service.dart';
+import '../widgets/report_dialog.dart';
 import '../widgets/user_avatar.dart';
 
 class EventDetailScreen extends StatelessWidget {
@@ -41,6 +42,19 @@ class EventDetailScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('รายละเอียดกิจกรรม'),
         actions: [
+          if (event.hostId != uid)
+            PopupMenuButton<String>(
+              onSelected: (_) => showReportFlow(
+                context,
+                title: 'รายงานกิจกรรม',
+                targetType: 'event',
+                targetId: event.id,
+                reportedUid: event.hostId,
+              ),
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'report', child: Text('รายงานกิจกรรม')),
+              ],
+            ),
           if (event.hostId == uid)
             IconButton(
               tooltip: 'ลบกิจกรรม',

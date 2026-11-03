@@ -81,17 +81,27 @@ service cloud.firestore {
       return signedIn() && !exists(/databases/$(database)/documents/communities/$(communityId)/banned/$(request.auth.uid))
         && (publicCommunity(communityId) || communityMember(communityId));
     }
-    function validReport() {
+    // รายงานถึงแอดมิน: id เอกสาร = {reporter}_{targetType}_{targetId} (กันรายงานซ้ำ — เขียนซ้ำจะกลายเป็น update ซึ่งถูกปฏิเสธ)
+    // ข้อความแชท/กลุ่ม: ผู้รายงานต้องเป็นสมาชิกของห้อง (contextId = id ห้อง)
+    function validReport(reportId) {
       return signedIn()
-        && request.resource.data.keys().hasOnly(['reporterId', 'targetType', 'targetId', 'reason', 'details', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['reporterId', 'targetType', 'targetId', 'reportedUid', 'contextId', 'reason', 'details', 'status', 'createdAt'])
         && request.resource.data.reporterId == request.auth.uid
-        && request.resource.data.targetType in ['post', 'profile', 'comment', 'message', 'page']
+        && request.resource.data.targetType in ['post', 'profile', 'comment', 'message', 'page', 'community', 'group_message', 'event']
         && request.resource.data.targetId is string && request.resource.data.targetId.size() > 0
         && request.resource.data.targetId.size() <= 256
+        && reportId == request.auth.uid + '_' + request.resource.data.targetType + '_' + request.resource.data.targetId
+        && request.resource.data.get('reportedUid', '') is string && request.resource.data.get('reportedUid', '').size() <= 128
+        && request.resource.data.get('contextId', '') is string && request.resource.data.get('contextId', '').size() <= 256
+        && request.resource.data.get('status', 'open') == 'open'
         && request.resource.data.reason is string && request.resource.data.reason.size() > 0
         && request.resource.data.reason.size() <= 80
         && request.resource.data.get('details', '') is string
         && request.resource.data.get('details', '').size() <= 500
+        && (!(request.resource.data.targetType in ['message', 'group_message'])
+          || (request.resource.data.get('contextId', '').size() > 0
+            && exists(/databases/$(database)/documents/chats/$(request.resource.data.contextId))
+            && get(/databases/$(database)/documents/chats/$(request.resource.data.contextId)).data.participants.hasAny([request.auth.uid])))
         && request.resource.data.createdAt == request.time;
     }
 
@@ -483,11 +493,17 @@ service cloud.firestore {
 
       match /reports/{reportId} {
         allow get, list: if communityModerator(communityId);
+        // id = {reporter}_{postId}[_{commentId}] กันรายงานซ้ำ
         allow create: if communityMember(communityId)
-          && request.resource.data.keys().hasOnly(['postId', 'reporterId', 'reason', 'createdAt'])
+          && request.resource.data.keys().hasOnly(['postId', 'reporterId', 'reason', 'details', 'targetType', 'commentId', 'reportedUid', 'createdAt'])
           && request.resource.data.reporterId == request.auth.uid
           && request.resource.data.postId is string && request.resource.data.reason is string
           && request.resource.data.reason.size() > 0 && request.resource.data.reason.size() <= 200
+          && request.resource.data.get('details', '') is string && request.resource.data.get('details', '').size() <= 500
+          && request.resource.data.get('targetType', 'post') in ['post', 'comment']
+          && request.resource.data.get('reportedUid', '') is string && request.resource.data.get('reportedUid', '').size() <= 128
+          && reportId == request.auth.uid + '_' + request.resource.data.postId
+            + (request.resource.data.keys().hasAny(['commentId']) ? '_' + request.resource.data.commentId : '')
           && request.resource.data.createdAt == request.time;
         allow update: if false;
         allow delete: if communityModerator(communityId);
@@ -647,7 +663,7 @@ service cloud.firestore {
     }
 
     match /reports/{reportId} {
-      allow create: if validReport();
+      allow create: if validReport(reportId);
       allow read, update, delete: if isAdmin();
     }
 

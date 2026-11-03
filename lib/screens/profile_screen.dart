@@ -1,6 +1,7 @@
 import '../widgets/text_controller_scope.dart';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import '../widgets/report_dialog.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/post_model.dart';
@@ -306,53 +307,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Future<void> _reportProfile() async {
-    final reasons = [
-      'สแปม',
-      'เนื้อหาไม่เหมาะสม',
-      'คุกคามหรือแอบอ้าง',
-      'อื่น ๆ',
-    ];
-    String reason = reasons.first;
-    final sent = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('รายงานโปรไฟล์'),
-        content: StatefulBuilder(
-          builder: (ctx, setDialogState) => DropdownButtonFormField<String>(
-            value: reason,
-            items: reasons
-                .map((r) => DropdownMenuItem(value: r, child: Text(r)))
-                .toList(),
-            onChanged: (v) {
-              if (v != null) setDialogState(() => reason = v);
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('ยกเลิก'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('ส่งรายงาน'),
-          ),
-        ],
-      ),
-    );
-    if (sent != true) return;
-    try {
-      await _safetyService.report(
-        targetType: 'profile',
-        targetId: _targetUid,
-        reason: reason,
-      );
-      _toast('ส่งรายงานแล้ว ขอบคุณที่แจ้งให้ทราบ');
-    } catch (e) {
-      _toast('ส่งรายงานไม่สำเร็จ: $e');
-    }
-  }
+  Future<void> _reportProfile() => showReportFlow(
+    context,
+    title: 'รายงานโปรไฟล์',
+    targetType: 'profile',
+    targetId: _targetUid,
+    reportedUid: _targetUid,
+  );
 
   Future<void> _blockProfile(String name) async {
     final confirmed = await showDialog<bool>(

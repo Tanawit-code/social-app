@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/post_model.dart';
 import 'notification_service.dart';
+import 'safety_service.dart';
 
 class PostService {
   final CollectionReference<Map<String, dynamic>> _posts = FirebaseFirestore
@@ -483,16 +484,21 @@ class PostService {
   }) => _posts.doc(postId).collection('comments').doc(commentId).delete();
 
   /// à¸£à¸²à¸¢à¸‡à¸²à¸™à¹‚à¸žà¸ªà¸•à¹Œ
+  /// รายงานโพสต์ — ส่งผ่าน [SafetyService] (กันรายงานซ้ำ + เก็บ reportedUid)
   Future<void> reportPost({
     required String postId,
     required String reporterId,
     required String reason,
+    String details = '',
+    String reportedUid = '',
   }) {
     return reportTarget(
       targetType: 'post',
       targetId: postId,
       reporterId: reporterId,
       reason: reason,
+      details: details,
+      reportedUid: reportedUid,
     );
   }
 
@@ -502,14 +508,16 @@ class PostService {
     required String reporterId,
     required String reason,
     String details = '',
+    String reportedUid = '',
+    String contextId = '',
   }) {
-    return FirebaseFirestore.instance.collection('reports').add({
-      'targetType': targetType,
-      'targetId': targetId,
-      'reporterId': reporterId,
-      'reason': reason,
-      'details': details,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
+    return SafetyService().report(
+      targetType: targetType,
+      targetId: targetId,
+      reason: reason,
+      details: details,
+      reportedUid: reportedUid,
+      contextId: contextId,
+    );
   }
 }

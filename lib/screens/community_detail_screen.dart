@@ -17,6 +17,7 @@ import '../widgets/user_avatar.dart';
 import '../widgets/text_controller_scope.dart';
 import 'community_moderation_screen.dart';
 import 'members_list_screen.dart';
+import '../widgets/report_dialog.dart';
 
 class CommunityDetailScreen extends StatefulWidget {
   final Community community;
@@ -189,34 +190,18 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
     }
   }
 
-  Future<void> _report(String postId) async {
-    final reason = await showDialog<String>(
-      context: context,
-      builder: (ctx) => SimpleDialog(
-        title: const Text('รายงานโพสต์'),
-        children: ['สแปม', 'เนื้อหาไม่เหมาะสม', 'คุกคามหรือทำร้ายผู้อื่น']
-            .map(
-              (value) => SimpleDialogOption(
-                onPressed: () => Navigator.pop(ctx, value),
-                child: Text(value),
-              ),
-            )
-            .toList(),
-      ),
-    );
-    if (reason == null) return;
-    try {
-      await _service.reportPost(
-        communityId: widget.community.id,
-        postId: postId,
-        reporterId: _uid,
-        reason: reason,
-      );
-      _message('ส่งรายงานให้ผู้ดูแลแล้ว');
-    } catch (e) {
-      _message('ส่งรายงานไม่สำเร็จ: $e');
-    }
-  }
+  Future<void> _report(String postId, String authorId) => showReportFlow(
+    context,
+    title: 'รายงานโพสต์ถึงผู้ดูแลชุมชน',
+    customSubmit: (reason, details) => _service.reportContent(
+      communityId: widget.community.id,
+      postId: postId,
+      reporterId: _uid,
+      reason: reason,
+      details: details,
+      reportedUid: authorId,
+    ),
+  );
 
   Future<void> _editPost(String postId, String oldText) async {
     final newText = await showDialog<String>(
@@ -306,6 +291,16 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
                 ),
               PopupMenuButton<String>(
                 onSelected: (value) async {
+                  if (value == 'report') {
+                    showReportFlow(
+                      context,
+                      title: 'รายงานชุมชน',
+                      targetType: 'community',
+                      targetId: widget.community.id,
+                      reportedUid: widget.community.ownerId,
+                      contextId: widget.community.id,
+                    );
+                  }
                   if (value == 'leave') {
                     try {
                       await _service.leave(widget.community.id, _uid);
@@ -319,6 +314,11 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
                     const PopupMenuItem(
                       value: 'leave',
                       child: Text('ออกจากชุมชน'),
+                    ),
+                  if (_uid != widget.community.ownerId)
+                    const PopupMenuItem(
+                      value: 'report',
+                      child: Text('รายงานชุมชน'),
                     ),
                 ],
               ),
@@ -651,7 +651,7 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
                                                   data['isPinned'] != true,
                                                 );
                                               if (value == 'report')
-                                                _report(doc.id);
+                                                _report(doc.id, authorId);
                                             },
                                             itemBuilder: (_) => [
                                               if (authorId == _uid)
@@ -1077,7 +1077,28 @@ class _CommunityCommentsSheetState extends State<_CommunityCommentsSheet> {
                               ),
                             ],
                           )
-                        : null,
+                        : PopupMenuButton<String>(
+                            onSelected: (_) => showReportFlow(
+                              context,
+                              title: 'รายงานคอมเมนต์ถึงผู้ดูแลชุมชน',
+                              customSubmit: (reason, details) =>
+                                  _service.reportContent(
+                                    communityId: widget.communityId,
+                                    postId: widget.postId,
+                                    commentId: doc.id,
+                                    reporterId: _uid,
+                                    reason: reason,
+                                    details: details,
+                                    reportedUid: authorId,
+                                  ),
+                            ),
+                            itemBuilder: (_) => const [
+                              PopupMenuItem(
+                                value: 'report',
+                                child: Text('รายงานคอมเมนต์'),
+                              ),
+                            ],
+                          ),
                   );
                 }).toList(),
               );

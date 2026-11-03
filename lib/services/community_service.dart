@@ -316,17 +316,50 @@ class CommunityService {
         'isPinned': pinned,
       });
 
-  Future<void> reportPost({
+  /// รายงานโพสต์ (หรือคอมเมนต์ใต้โพสต์เมื่อใส่ [commentId]) ถึงผู้ดูแลชุมชน
+  /// id ของรายงาน = {reporter}_{postId}[_{commentId}] จึงรายงานซ้ำไม่ได้ (rules บังคับ)
+  Future<void> reportContent({
     required String communityId,
     required String postId,
+    String? commentId,
     required String reporterId,
     required String reason,
-  }) => _communities.doc(communityId).collection('reports').add({
-    'postId': postId,
-    'reporterId': reporterId,
-    'reason': reason,
-    'createdAt': FieldValue.serverTimestamp(),
-  });
+    String details = '',
+    String reportedUid = '',
+  }) => _communities
+      .doc(communityId)
+      .collection('reports')
+      .doc('${reporterId}_$postId${commentId == null ? '' : '_$commentId'}')
+      .set({
+        'postId': postId,
+        'targetType': commentId == null ? 'post' : 'comment',
+        if (commentId != null) 'commentId': commentId,
+        'reporterId': reporterId,
+        'reportedUid': reportedUid,
+        'reason': reason,
+        'details': details,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+  /// ผู้ดูแลลบเนื้อหาที่ถูกรายงาน แล้วปิดรายงานนั้น
+  Future<void> removeReportedContent(
+    String communityId,
+    String reportId,
+    Map<String, dynamic> report,
+  ) async {
+    final postId = report['postId'] as String? ?? '';
+    final commentId = report['commentId'] as String?;
+    if (commentId != null) {
+      await deleteComment(
+        communityId: communityId,
+        postId: postId,
+        commentId: commentId,
+      );
+    } else {
+      await deletePost(communityId, postId);
+    }
+    await resolveReport(communityId, reportId);
+  }
 
   Future<void> resolveReport(String communityId, String reportId) =>
       _communities

@@ -1,12 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import '../widgets/report_dialog.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/auth_service.dart';
 import '../services/page_service.dart';
 import '../services/post_service.dart';
 import '../models/post_model.dart';
 import '../services/storage_service.dart';
-import '../services/safety_service.dart';
 import '../utils/image_data.dart';
 import 'home_feed_screen.dart' show AuthorName, PostCard;
 import 'create_post_screen.dart';
@@ -136,18 +136,15 @@ class _PageDetailScreenState extends State<PageDetailScreen> {
               ),
             if (!isOwner)
               PopupMenuButton<String>(
-                onSelected: (value) async {
+                onSelected: (value) {
                   if (value != 'report') return;
-                  try {
-                    await SafetyService().report(
-                      targetType: 'page',
-                      targetId: widget.pageId,
-                      reason: 'เพจมีเนื้อหาไม่เหมาะสม',
-                    );
-                    _toast('ส่งรายงานแล้ว');
-                  } catch (e) {
-                    _toast('ส่งรายงานไม่สำเร็จ: $e');
-                  }
+                  showReportFlow(
+                    context,
+                    title: 'รายงานเพจ',
+                    targetType: 'page',
+                    targetId: widget.pageId,
+                    reportedUid: ownerId,
+                  );
                 },
                 itemBuilder: (_) => const [
                   PopupMenuItem(value: 'report', child: Text('รายงานเพจ')),
