@@ -38,7 +38,7 @@ class MyApp extends StatelessWidget {
       listenable: AppThemeController.instance,
       builder: (context, _) => MaterialApp(
         navigatorKey: PushNotificationService.navigatorKey,
-        title: 'Social Network App',
+        title: 'SonTana',
         debugShowCheckedModeBanner: false,
         theme: buildAppTheme(AppThemeController.instance.preset.color),
         initialRoute: '/login',

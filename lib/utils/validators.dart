@@ -66,3 +66,19 @@ String? validateRegisterForm({
   if (password != confirm) return 'รหัสผ่านไม่ตรงกัน';
   return null;
 }
+
+/// ความแข็งแรงของรหัสผ่าน 0-4 (0 = ว่าง, 1 = อ่อนมาก ... 4 = แข็งแรง)
+/// ใช้แสดงแถบสีตอนสมัครสมาชิก — ไม่ได้แทนเกณฑ์ขั้นต่ำของ [validatePassword]
+int passwordStrength(String password) {
+  if (password.isEmpty) return 0;
+  var score = 0;
+  if (password.length >= 8) score++;
+  if (_digitRegex.hasMatch(password)) score++;
+  if (_specialRegex.hasMatch(password)) score++;
+  if (password.length >= 12 &&
+      RegExp(r'[a-z]').hasMatch(password) &&
+      RegExp(r'[A-Z]').hasMatch(password)) {
+    score++;
+  }
+  return score.clamp(1, 4);
+}

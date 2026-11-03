@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// ชุดสีธีมที่ให้ผู้ใช้เลือก (สีที่แอปโซเชียล/เว็บทั่วไปนิยมใช้)
@@ -55,7 +56,7 @@ class AppThemeController extends ChangeNotifier {
 
 ThemeData buildAppTheme(Color seed) {
   final scheme = ColorScheme.fromSeed(seedColor: seed);
-  final radius = BorderRadius.circular(12);
+  final radius = BorderRadius.circular(14);
   return ThemeData(
     useMaterial3: true,
     colorScheme: scheme,
@@ -98,7 +99,8 @@ ThemeData buildAppTheme(Color seed) {
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        minimumSize: const Size(0, 44),
+        minimumSize: const Size(0, 46),
+        textStyle: const TextStyle(fontWeight: FontWeight.w600),
         shape: RoundedRectangleBorder(borderRadius: radius),
       ),
     ),
@@ -137,8 +139,18 @@ ThemeData buildAppTheme(Color seed) {
     ),
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
+      backgroundColor: const Color(0xFF263238),
+      contentTextStyle: const TextStyle(color: Colors.white, fontSize: 14),
       shape: RoundedRectangleBorder(borderRadius: radius),
     ),
+    // เปลี่ยนหน้าแบบนุ่มนวลเหมือนกันทุกแพลตฟอร์ม
+    pageTransitionsTheme: const PageTransitionsTheme(
+      builders: {
+        TargetPlatform.android: FadeForwardsPageTransitionsBuilder(),
+        TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+      },
+    ),
+    progressIndicatorTheme: ProgressIndicatorThemeData(color: scheme.primary),
     dividerTheme: DividerThemeData(
       color: scheme.outlineVariant.withValues(alpha: 0.6),
       space: 1,

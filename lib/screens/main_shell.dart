@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../services/auth_service.dart';
 import '../services/notification_service.dart';
 import '../services/push_notification_service.dart';
@@ -81,6 +82,7 @@ class _MainShellState extends State<MainShell> {
 
   void _select(int i) {
     if (i == _index) return;
+    HapticFeedback.selectionClick();
     // เข้าหรือออกจากแท็บไหน = ถือว่าอ่านแจ้งเตือนของแท็บนั้นแล้ว
     // (กัน badge ค้างจากแจ้งเตือนที่มาตอนเปิดหน้านั้นอยู่)
     if (i == _notiIndex || _index == _notiIndex) {
@@ -144,10 +146,10 @@ class _MainShellState extends State<MainShell> {
     final selected = i == _index;
     final color = selected ? _fbBlue : Colors.grey.shade600;
 
-    Widget icon = Icon(
-      selected ? tab.activeIcon : tab.icon,
-      color: color,
-      size: 28,
+    Widget icon = AnimatedScale(
+      scale: selected ? 1.12 : 1.0,
+      duration: const Duration(milliseconds: 180),
+      child: Icon(selected ? tab.activeIcon : tab.icon, color: color, size: 28),
     );
 
     // แท็บแชท = ข้อความใหม่, แท็บกระดิ่ง = ติดตาม/ไลก์/คอมเมนต์
@@ -185,14 +187,26 @@ class _MainShellState extends State<MainShell> {
         child: Stack(
           alignment: Alignment.center,
           children: [
-            // เส้นสีน้ำเงินด้านบนของแท็บที่เลือก
-            if (selected)
-              Positioned(
-                top: 0,
-                left: 12,
-                right: 12,
-                child: Container(height: 3, color: _fbBlue),
+            // เส้นด้านบนของแท็บที่เลือก (เลื่อน/ขยายแบบ animate)
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
+                  width: selected ? 36 : 0,
+                  height: 3,
+                  decoration: BoxDecoration(
+                    color: _fbBlue,
+                    borderRadius: const BorderRadius.vertical(
+                      bottom: Radius.circular(3),
+                    ),
+                  ),
+                ),
               ),
+            ),
             Tooltip(message: tab.label, child: icon),
           ],
         ),

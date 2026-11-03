@@ -207,4 +207,19 @@ void main() {
       );
     });
   });
+
+  // ---------------------------------------------------------------
+  group('passwordStrength', () {
+    test('ว่าง -> 0', () => expect(passwordStrength(''), 0));
+    test('สั้นและเรียบง่าย -> 1 (ขั้นต่ำ)', () {
+      expect(passwordStrength('abc'), 1);
+    });
+    test('8 ตัว + ตัวเลข -> 2', () => expect(passwordStrength('abcdefg1'), 2));
+    test('8 ตัว + ตัวเลข + อักขระพิเศษ -> 3', () {
+      expect(passwordStrength('abcdef1!'), 3);
+    });
+    test('ยาว 12+ ผสมตัวพิมพ์เล็ก/ใหญ่ ตัวเลข อักขระพิเศษ -> 4', () {
+      expect(passwordStrength('Abcdefgh123!'), 4);
+    });
+  });
 }

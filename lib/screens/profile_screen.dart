@@ -2,6 +2,8 @@ import '../widgets/text_controller_scope.dart';
 import '../widgets/mention_text.dart';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 import '../widgets/report_dialog.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -538,34 +540,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          FilledButton.icon(
-            style: _btnStyle(bg: _fbBlue, fg: Colors.white),
-            onPressed: () =>
-                _editProfile(name, bio, photoUrl, isPrivate: isPrivate),
-            icon: const Icon(Icons.edit, size: 18),
-            label: const Text('แก้ไขโปรไฟล์'),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  style: _btnStyle(bg: _fbBlue, fg: Colors.white),
+                  onPressed: () =>
+                      _editProfile(name, bio, photoUrl, isPrivate: isPrivate),
+                  icon: const Icon(Icons.edit, size: 18),
+                  label: const Text('แก้ไขโปรไฟล์'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 52,
+                child: FilledButton(
+                  style: _btnStyle(bg: _btnGrey, fg: Colors.black87).copyWith(
+                    padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+                  ),
+                  onPressed: () => _shareProfile(name, bio),
+                  child: const Tooltip(
+                    message: 'แชร์โปรไฟล์',
+                    child: Icon(Icons.ios_share, size: 20),
+                  ),
+                ),
+              ),
+            ],
           ),
-          OutlinedButton.icon(
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const PrivacySettingsScreen()),
-            ),
-            icon: const Icon(Icons.privacy_tip_outlined),
-            label: const Text('ความเป็นส่วนตัวและคำขอติดตาม'),
-          ),
-          OutlinedButton.icon(
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const AccountSettingsScreen()),
-            ),
-            icon: const Icon(Icons.manage_accounts_outlined),
-            label: const Text('บัญชี อีเมล รหัสผ่าน และการแจ้งเตือน'),
-          ),
-          TextButton.icon(
-            onPressed: _manageFeedControls,
-            icon: const Icon(Icons.tune),
-            label: const Text('จัดการฟีดและโพสต์ที่ซ่อน'),
-          ),
+          const SizedBox(height: 14),
+          _settingsCard(),
         ],
       );
     }
@@ -675,6 +678,164 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  /// แชร์โปรไฟล์ผ่านเมนูแชร์ของเครื่อง
+  Future<void> _shareProfile(String name, String bio) async {
+    final text = [
+      '${name.isEmpty ? 'ผู้ใช้ Social' : name} บน Social',
+      if (bio.trim().isNotEmpty) bio.trim(),
+    ].join('\n');
+    try {
+      await SharePlus.instance.share(
+        ShareParams(text: text, title: 'แชร์โปรไฟล์'),
+      );
+    } catch (e) {
+      _toast('แชร์โปรไฟล์ไม่สำเร็จ: $e');
+    }
+  }
+
+  Future<void> _copyEmail(String email) async {
+    await Clipboard.setData(ClipboardData(text: email));
+    _toast('คัดลอกอีเมลแล้ว');
+  }
+
+  Future<void> _confirmLogout() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('ออกจากระบบ?'),
+        content: const Text('คุณจะต้องเข้าสู่ระบบอีกครั้งเพื่อใช้งานต่อ'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('ยกเลิก'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('ออกจากระบบ'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await _authService.logout();
+    if (!mounted) return;
+    Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+  }
+
+  /// การ์ดรวมเมนูตั้งค่าของตัวเอง (แทนปุ่มเรียงยาวหลายปุ่ม)
+  Widget _settingsCard() {
+    Widget tile(
+      IconData icon,
+      String title,
+      VoidCallback onTap, {
+      bool danger = false,
+    }) {
+      final color = danger ? Colors.red.shade700 : _fbBlue;
+      return ListTile(
+        dense: true,
+        visualDensity: const VisualDensity(vertical: 0.5),
+        leading: Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, size: 20, color: color),
+        ),
+        title: Text(
+          title,
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            color: danger ? Colors.red.shade700 : null,
+          ),
+        ),
+        trailing: const Icon(Icons.chevron_right, color: Colors.black38),
+        onTap: onTap,
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F8FA),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE4E6EB)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          tile(
+            Icons.privacy_tip_outlined,
+            'ความเป็นส่วนตัวและคำขอติดตาม',
+            () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const PrivacySettingsScreen()),
+            ),
+          ),
+          const Divider(height: 1, indent: 60),
+          tile(
+            Icons.manage_accounts_outlined,
+            'บัญชี อีเมล รหัสผ่าน และการแจ้งเตือน',
+            () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const AccountSettingsScreen()),
+            ),
+          ),
+          const Divider(height: 1, indent: 60),
+          tile(Icons.tune, 'จัดการฟีดและโพสต์ที่ซ่อน', _manageFeedControls),
+          const Divider(height: 1, indent: 60),
+          tile(Icons.logout, 'ออกจากระบบ', _confirmLogout, danger: true),
+        ],
+      ),
+    );
+  }
+
+  /// แถบสถิติ: ผู้ติดตาม | กำลังติดตาม (กดเพื่อดูรายชื่อ)
+  Widget _statsRow(List<String> followers, List<String> following) {
+    Widget stat(String label, List<String> ids) {
+      return Expanded(
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () => _showFollowList(label, ids),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Column(
+              children: [
+                Text(
+                  '${ids.length}',
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  label,
+                  style: const TextStyle(color: Colors.black54, fontSize: 12.5),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F8FA),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE4E6EB)),
+      ),
+      child: Row(
+        children: [
+          stat('ผู้ติดตาม', followers),
+          Container(width: 1, height: 34, color: const Color(0xFFE4E6EB)),
+          stat('กำลังติดตาม', following),
+        ],
+      ),
+    );
+  }
+
   Widget _infoRow(IconData icon, Widget child) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
@@ -684,27 +845,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(width: 12),
           Expanded(child: child),
         ],
-      ),
-    );
-  }
-
-  Widget _countText(int n, String label, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(6),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
-        child: Text.rich(
-          TextSpan(
-            children: [
-              TextSpan(
-                text: '$n',
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              TextSpan(text: ' $label  ›'),
-            ],
-          ),
-        ),
       ),
     );
   }
@@ -1012,13 +1152,33 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          Text(
-                            name.isEmpty ? 'ผู้ใช้ไม่ทราบชื่อ' : name,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                            ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  name.isEmpty ? 'ผู้ใช้ไม่ทราบชื่อ' : name,
+                                  textAlign: TextAlign.center,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                              if (isPrivate) ...[
+                                const SizedBox(width: 6),
+                                const Tooltip(
+                                  message: 'บัญชีส่วนตัว',
+                                  child: Icon(
+                                    Icons.lock_outline,
+                                    size: 20,
+                                    color: Colors.black45,
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
                           if (bio.isNotEmpty) ...[
                             const SizedBox(height: 4),
@@ -1031,22 +1191,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           const SizedBox(height: 16),
                           _actions(name, bio, photoUrl, isFollowing, isPrivate),
                           const SizedBox(height: 12),
-                          _infoRow(
-                            Icons.people_alt_outlined,
-                            _countText(
-                              followers.length,
-                              'ผู้ติดตาม',
-                              () => _showFollowList('ผู้ติดตาม', followers),
-                            ),
-                          ),
-                          _infoRow(
-                            Icons.person_add_alt_outlined,
-                            _countText(
-                              following.length,
-                              'กำลังติดตาม',
-                              () => _showFollowList('กำลังติดตาม', following),
-                            ),
-                          ),
+                          _statsRow(followers, following),
+                          const SizedBox(height: 8),
                           if (_isMe)
                             StreamBuilder<
                               DocumentSnapshot<Map<String, dynamic>>
@@ -1064,7 +1210,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     '';
                                 return email.isEmpty
                                     ? const SizedBox.shrink()
-                                    : _infoRow(Icons.mail_outline, Text(email));
+                                    : _infoRow(
+                                        Icons.mail_outline,
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                email,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                            IconButton(
+                                              tooltip: 'คัดลอกอีเมล',
+                                              visualDensity:
+                                                  VisualDensity.compact,
+                                              iconSize: 18,
+                                              icon: const Icon(Icons.copy),
+                                              onPressed: () => _copyEmail(email),
+                                            ),
+                                          ],
+                                        ),
+                                      );
                               },
                             ),
                           if (joined != null)

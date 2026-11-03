@@ -33,27 +33,103 @@ class HomeFeedScreen extends StatefulWidget {
 class _HomeFeedScreenState extends State<HomeFeedScreen> {
   final _postService = PostService();
   final _authService = AuthService();
-  // สร้าง stream ครั้งเดียว — ถ้าสร้างใหม่ใน build() ทุกครั้ง ฟีดจะ resubscribe แล้ว
-  // กลับไปเป็นหน้าโหลด ทำให้ widget ใต้ ListView (รวม StoryStrip) ถูกถอดตอน sheet ยังเปิดอยู่
-  late final Stream<List<Post>> _feed = _postService.feedStream(
-    viewerId: _authService.currentUser?.uid ?? '',
-  );
+  final _scroll = ScrollController();
+  bool _showTop = false;
+
+  // สร้าง stream ตอนเริ่ม/ตอนดึงรีเฟรชเท่านั้น — ถ้าสร้างใหม่ใน build() ทุกครั้ง ฟีดจะ
+  // resubscribe แล้วกลับไปเป็นหน้าโหลด ทำให้ widget ใต้ ListView (รวม StoryStrip)
+  // ถูกถอดตอน sheet ยังเปิดอยู่
+  late Stream<List<Post>> _feed = _newFeed();
+
+  Stream<List<Post>> _newFeed() =>
+      _postService.feedStream(viewerId: _authService.currentUser?.uid ?? '');
+
+  @override
+  void initState() {
+    super.initState();
+    _scroll.addListener(() {
+      final show = _scroll.hasClients && _scroll.offset > 700;
+      if (show != _showTop) setState(() => _showTop = show);
+    });
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  /// ดึงลงเพื่อรีเฟรช: เปิด stream ใหม่ (ข้อมูลเดิมยังค้างบนจอจนกว่าข้อมูลใหม่มา)
+  Future<void> _refresh() async {
+    setState(() => _feed = _newFeed());
+    await Future<void>.delayed(const Duration(milliseconds: 700));
+  }
+
+  void _scrollToTop() {
+    if (!_scroll.hasClients) return;
+    _scroll.animateTo(
+      0,
+      duration: const Duration(milliseconds: 450),
+      curve: Curves.easeOutCubic,
+    );
+  }
 
   Future<void> _logout() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('ออกจากระบบ?'),
+        content: const Text('คุณจะต้องเข้าสู่ระบบอีกครั้งเพื่อใช้งานต่อ'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('ยกเลิก'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('ออกจากระบบ'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
     await _authService.logout();
     if (!mounted) return;
     Navigator.pushReplacementNamed(context, '/login');
   }
 
+  void _open(Widget screen) =>
+      Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
+
   @override
   Widget build(BuildContext context) {
     final uid = _authService.currentUser?.uid ?? '';
+    final primary = Theme.of(context).colorScheme.primary;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
-          'Social',
-          style: TextStyle(fontWeight: FontWeight.bold),
+        titleSpacing: 16,
+        title: Row(
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: primary,
+                borderRadius: BorderRadius.circular(11),
+              ),
+              child: const Icon(
+                Icons.forum_rounded,
+                size: 20,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(width: 10),
+            const Text(
+              'SonTaNa',
+              style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 0.3),
+            ),
+          ],
         ),
         // ค้นหา/แชท/แจ้งเตือน/โปรไฟล์ ย้ายไปอยู่ bottom bar (MainShell) แล้ว
         actions: [
@@ -62,88 +138,341 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
             icon: const Icon(Icons.palette_outlined),
             onPressed: () => showThemePicker(context),
           ),
-          IconButton(
-            tooltip: 'ชุมชน',
-            icon: const Icon(Icons.groups_2_outlined),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const CommunitiesScreen()),
+          PopupMenuButton<String>(
+            tooltip: 'เมนู',
+            icon: const Icon(Icons.more_vert),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
             ),
+            onSelected: (v) {
+              switch (v) {
+                case 'communities':
+                  _open(const CommunitiesScreen());
+                case 'pages':
+                  _open(const PagesScreen());
+                case 'reels':
+                  _open(const ReelsScreen());
+                case 'top':
+                  _scrollToTop();
+                case 'logout':
+                  _logout();
+              }
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'communities',
+                child: _MenuRow(Icons.groups_2_outlined, 'ชุมชน'),
+              ),
+              PopupMenuItem(
+                value: 'pages',
+                child: _MenuRow(Icons.flag_outlined, 'เพจ'),
+              ),
+              PopupMenuItem(
+                value: 'reels',
+                child: _MenuRow(Icons.video_library_outlined, 'Reels'),
+              ),
+              PopupMenuDivider(),
+              PopupMenuItem(
+                value: 'logout',
+                child: _MenuRow(Icons.logout, 'ออกจากระบบ', danger: true),
+              ),
+            ],
           ),
-          IconButton(
-            tooltip: 'เพจ',
-            icon: const Icon(Icons.flag_outlined),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const PagesScreen()),
-            ),
-          ),
-          IconButton(
-            tooltip: 'ออกจากระบบ',
-            icon: const Icon(Icons.logout),
-            onPressed: _logout,
-          ),
+          const SizedBox(width: 4),
         ],
       ),
       body: StreamBuilder<List<Post>>(
         stream: _feed,
         builder: (context, snapshot) {
           if (snapshot.hasError) {
-            return _ErrorState(message: 'โหลดฟีดไม่สำเร็จ: ${snapshot.error}');
+            return _ErrorState(
+              message: 'โหลดฟีดไม่สำเร็จ: ${snapshot.error}',
+              onRetry: _refresh,
+            );
           }
           if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
           final posts = snapshot.data!;
-          return ListView(
-            padding: const EdgeInsets.all(10),
-            children: [
-              _ComposerBar(uid: uid),
-              const SizedBox(height: 10),
-              const StoryStrip(),
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton.icon(
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const ReelsScreen()),
+          return RefreshIndicator(
+            onRefresh: _refresh,
+            child: ListView(
+              controller: _scroll,
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(10),
+              children: [
+                _GreetingCard(uid: uid),
+                const SizedBox(height: 10),
+                _ComposerBar(uid: uid),
+                const SizedBox(height: 10),
+                const StoryStrip(),
+                const SizedBox(height: 4),
+                SizedBox(
+                  height: 44,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    children: [
+                      _ShortcutChip(
+                        icon: Icons.video_library_rounded,
+                        label: 'Reels',
+                        onTap: () => _open(const ReelsScreen()),
+                      ),
+                      _ShortcutChip(
+                        icon: Icons.groups_2_rounded,
+                        label: 'ชุมชน',
+                        onTap: () => _open(const CommunitiesScreen()),
+                      ),
+                      _ShortcutChip(
+                        icon: Icons.flag_rounded,
+                        label: 'เพจ',
+                        onTap: () => _open(const PagesScreen()),
+                      ),
+                    ],
                   ),
-                  icon: const Icon(Icons.video_library_outlined),
-                  label: const Text('ดู Reels'),
                 ),
-              ),
-              SuggestedPeople(uid: uid),
-              const SizedBox(height: 10),
-              if (posts.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 40),
-                  child: Center(
-                    child: Text('ยังไม่มีโพสต์ ลองเป็นคนแรกที่โพสต์สิ!'),
-                  ),
-                )
-              else
-                ...posts.map(
-                  (p) => Padding(
-                    key: ValueKey(p.id),
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: PostCard(
-                      post: p,
-                      currentUid: uid,
-                      postService: _postService,
+                const SizedBox(height: 6),
+                SuggestedPeople(uid: uid),
+                const SizedBox(height: 10),
+                if (posts.isEmpty)
+                  _EmptyFeed(onCreate: () => _open(const CreatePostScreen()))
+                else
+                  ...posts.map(
+                    (p) => Padding(
+                      key: ValueKey(p.id),
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: PostCard(
+                        post: p,
+                        currentUid: uid,
+                        postService: _postService,
+                      ),
                     ),
                   ),
-                ),
-            ],
+              ],
+            ),
           );
         },
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const CreatePostScreen()),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          AnimatedScale(
+            scale: _showTop ? 1 : 0,
+            duration: const Duration(milliseconds: 180),
+            child: FloatingActionButton.small(
+              heroTag: null,
+              tooltip: 'กลับขึ้นบน',
+              backgroundColor: Colors.white,
+              foregroundColor: primary,
+              onPressed: _scrollToTop,
+              child: const Icon(Icons.keyboard_arrow_up_rounded),
+            ),
+          ),
+          const SizedBox(height: 10),
+          FloatingActionButton(
+            heroTag: null,
+            tooltip: 'สร้างโพสต์',
+            onPressed: () => _open(const CreatePostScreen()),
+            child: const Icon(Icons.add),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MenuRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool danger;
+  const _MenuRow(this.icon, this.label, {this.danger = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = danger ? Colors.red.shade700 : null;
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: color),
+        const SizedBox(width: 12),
+        Text(label, style: TextStyle(color: color)),
+      ],
+    );
+  }
+}
+
+class _ShortcutChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  const _ShortcutChip({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: ActionChip(
+        avatar: Icon(icon, size: 18, color: primary),
+        label: Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+        backgroundColor: Colors.white,
+        onPressed: onTap,
+      ),
+    );
+  }
+}
+
+/// การ์ดทักทายด้านบนฟีด: ข้อความตามช่วงเวลา + ชื่อผู้ใช้ + วันที่วันนี้
+class _GreetingCard extends StatelessWidget {
+  final String uid;
+  const _GreetingCard({required this.uid});
+
+  static const _days = [
+    'วันจันทร์',
+    'วันอังคาร',
+    'วันพุธ',
+    'วันพฤหัสบดี',
+    'วันศุกร์',
+    'วันเสาร์',
+    'วันอาทิตย์',
+  ];
+  static const _months = [
+    'ม.ค.',
+    'ก.พ.',
+    'มี.ค.',
+    'เม.ย.',
+    'พ.ค.',
+    'มิ.ย.',
+    'ก.ค.',
+    'ส.ค.',
+    'ก.ย.',
+    'ต.ค.',
+    'พ.ย.',
+    'ธ.ค.',
+  ];
+
+  String _greeting(int hour) {
+    if (hour < 5) return 'ดึกแล้วนะ';
+    if (hour < 12) return 'สวัสดีตอนเช้า';
+    if (hour < 17) return 'สวัสดีตอนบ่าย';
+    if (hour < 20) return 'สวัสดีตอนเย็น';
+    return 'สวัสดีตอนค่ำ';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+    final now = DateTime.now();
+    final dateText =
+        '${_days[now.weekday - 1]}ที่ ${now.day} ${_months[now.month - 1]} ${now.year + 543}';
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        gradient: LinearGradient(
+          colors: [primary, Color.lerp(primary, Colors.black, 0.35)!],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
-        child: const Icon(Icons.add),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(2),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+            ),
+            child: UserAvatar(uid: uid, radius: 24),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: uid.isEmpty
+                ? const SizedBox.shrink()
+                : StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                    stream: FirebaseFirestore.instance
+                        .collection('users')
+                        .doc(uid)
+                        .snapshots(),
+                    builder: (context, snap) {
+                      final full = (snap.data?.data()?['name'] ?? '') as String;
+                      final first = full.trim().split(RegExp(r'\s+')).first;
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            first.isEmpty
+                                ? _greeting(now.hour)
+                                : '${_greeting(now.hour)}, $first',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 17,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            dateText,
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.85),
+                              fontSize: 12.5,
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyFeed extends StatelessWidget {
+  final VoidCallback onCreate;
+  const _EmptyFeed({required this.onCreate});
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 24),
+      child: Column(
+        children: [
+          Container(
+            width: 84,
+            height: 84,
+            decoration: BoxDecoration(
+              color: primary.withValues(alpha: 0.10),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(Icons.edit_note_rounded, size: 44, color: primary),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'ยังไม่มีโพสต์',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'ลองเป็นคนแรกที่โพสต์สิ! หรือติดตามเพื่อนเพื่อดูโพสต์ของพวกเขา',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.black54),
+          ),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: onCreate,
+            icon: const Icon(Icons.add),
+            label: const Text('สร้างโพสต์แรก'),
+          ),
+        ],
       ),
     );
   }
@@ -234,17 +563,33 @@ class _ComposerBar extends StatelessWidget {
 
 class _ErrorState extends StatelessWidget {
   final String message;
-  const _ErrorState({required this.message});
+  final Future<void> Function()? onRetry;
+  const _ErrorState({required this.message, this.onRetry});
 
   @override
   Widget build(BuildContext context) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
-        child: Text(
-          message,
-          style: const TextStyle(color: Colors.red),
-          textAlign: TextAlign.center,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.cloud_off_rounded, size: 56, color: Colors.red.shade300),
+            const SizedBox(height: 12),
+            Text(
+              message,
+              style: TextStyle(color: Colors.red.shade700),
+              textAlign: TextAlign.center,
+            ),
+            if (onRetry != null) ...[
+              const SizedBox(height: 16),
+              OutlinedButton.icon(
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh),
+                label: const Text('ลองใหม่'),
+              ),
+            ],
+          ],
         ),
       ),
     );
