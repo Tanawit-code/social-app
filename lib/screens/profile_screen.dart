@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import '../widgets/report_dialog.dart';
-import '../widgets/moderation_banner.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/post_model.dart';
@@ -23,13 +22,10 @@ import '../utils/image_data.dart';
 import 'chat_screen.dart';
 import 'privacy_settings_screen.dart';
 import 'account_settings_screen.dart';
+import 'community_detail_screen.dart'
+    show CommunityPostActions, showCommunityPostComments;
 import 'home_feed_screen.dart'
-    show
-        AuthorName,
-        EditPostDialog,
-        SharedPostPreview,
-        formatRelativeTime,
-        invalidateAuthorName;
+    show AuthorName, PostCard, formatRelativeTime, invalidateAuthorName;
 
 /// โปรไฟล์ — ไม่ส่ง uid = โปรไฟล์ของตัวเอง (แก้ไขได้)
 /// ส่ง uid ของคนอื่น = ดูโปรไฟล์ + ติดตาม/เลิกติดตาม + ส่งข้อความ
@@ -70,6 +66,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         isFriend: _friendStatus.then((s) => s == FriendRequestState.friends),
       );
 
+  // แท็บในโปรไฟล์: 0 = โพสต์, 1 = วิดีโอ
+  int _tab = 0;
   bool _busy = false;
   bool _followRequestPending = false;
   bool _deleting = false;
@@ -195,14 +193,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ); // ให้ชื่อใหม่แสดงในฟีด/คอมเมนต์ที่โหลดครั้งถัดไป
       _toast('บันทึกโปรไฟล์แล้ว');
     }
-  }
-
-  Future<void> _editPost(Post post) async {
-    final saved = await showDialog<bool>(
-      context: context,
-      builder: (_) => EditPostDialog(post: post, postService: _postService),
-    );
-    if (saved == true) _toast('บันทึกการแก้ไขโพสต์แล้ว');
   }
 
   /// ลบโพสต์ของตัวเองจากหน้าโปรไฟล์ (โพสต์ส่วนตัว/เพจ อยู่ใน posts, โพสต์ชุมชนอยู่ใต้ communities)
@@ -793,26 +783,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   /// แถบสถิติ: ผู้ติดตาม | กำลังติดตาม (กดเพื่อดูรายชื่อ)
   Widget _statsRow(List<String> followers, List<String> following) {
-    Widget stat(String label, List<String> ids) {
+    Widget stat(String label, List<String> ids, IconData icon) {
       return Expanded(
         child: InkWell(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(16),
           onTap: () => _showFollowList(label, ids),
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 12),
             child: Column(
               children: [
                 Text(
-                  '${ids.length}',
+                  _compact(ids.length),
                   style: const TextStyle(
-                    fontSize: 20,
+                    fontSize: 21,
                     fontWeight: FontWeight.w800,
+                    height: 1.1,
                   ),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  label,
-                  style: const TextStyle(color: Colors.black54, fontSize: 12.5),
+                const SizedBox(height: 3),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(icon, size: 14, color: Colors.black45),
+                    const SizedBox(width: 4),
+                    Text(
+                      label,
+                      style: const TextStyle(
+                        color: Colors.black54,
+                        fontSize: 12.5,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -823,29 +824,64 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFFF7F8FA),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE4E6EB)),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE9EBEF)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0F000000),
+            blurRadius: 12,
+            offset: Offset(0, 4),
+          ),
+        ],
       ),
       child: Row(
         children: [
-          stat('ผู้ติดตาม', followers),
-          Container(width: 1, height: 34, color: const Color(0xFFE4E6EB)),
-          stat('กำลังติดตาม', following),
+          stat('ผู้ติดตาม', followers, Icons.people_alt_outlined),
+          Container(width: 1, height: 36, color: const Color(0xFFE9EBEF)),
+          stat('กำลังติดตาม', following, Icons.person_add_alt_outlined),
         ],
       ),
     );
   }
 
-  Widget _infoRow(IconData icon, Widget child) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        children: [
-          Icon(icon, size: 20, color: Colors.black54),
-          const SizedBox(width: 12),
-          Expanded(child: child),
-        ],
+  /// ตัวเลขแบบย่อ (1.2K / 3.4M)
+  static String _compact(int n) {
+    if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(1)}M';
+    if (n >= 10000) return '${(n / 1000).toStringAsFixed(1)}K';
+    return '$n';
+  }
+
+  /// ป้ายข้อมูลเล็กๆ ใต้ชื่อ (วันที่เข้าร่วม / อีเมล / บัญชีส่วนตัว)
+  Widget _chip(IconData icon, String label, {VoidCallback? onTap}) {
+    return Material(
+      color: const Color(0xFFF0F2F5),
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 15, color: Colors.black54),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12.5, color: Colors.black87),
+                ),
+              ),
+              if (onTap != null) ...[
+                const SizedBox(width: 6),
+                const Icon(Icons.copy, size: 13, color: Colors.black38),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -959,6 +995,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
             ),
           ),
+          // เงาไล่สีด้านล่างปก ให้รูปโปรไฟล์ที่ซ้อนอยู่ดูนุ่มขึ้น
+          Positioned(
+            top: 90,
+            left: 0,
+            right: 0,
+            height: 60,
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Colors.transparent, Color(0x33000000)],
+                  ),
+                ),
+              ),
+            ),
+          ),
           if (_isMe)
             Positioned(
               top: 8,
@@ -981,6 +1035,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     decoration: const BoxDecoration(
                       color: Colors.white,
                       shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Color(0x33000000),
+                          blurRadius: 14,
+                          offset: Offset(0, 5),
+                        ),
+                      ],
                     ),
                     child: PhotoAvatar(url: photoUrl, radius: 52),
                   ),
@@ -1015,7 +1076,78 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _postsSection() {
+  static bool _isVideo(ProfilePost p) => p.post.mediaType == 'video';
+
+  /// ปุ่มสลับแท็บแบบแคปซูล: โพสต์ / วิดีโอ (พร้อมจำนวน)
+  Widget _tabSwitcher(int postCount, int videoCount) {
+    Widget tab(int index, IconData icon, String label, int count) {
+      final selected = _tab == index;
+      final color = Theme.of(context).colorScheme.primary;
+      return Expanded(
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => setState(() => _tab = index),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            decoration: BoxDecoration(
+              color: selected ? color : Colors.transparent,
+              borderRadius: BorderRadius.circular(22),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  icon,
+                  size: 19,
+                  color: selected ? Colors.white : Colors.black54,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '$label  $count',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: selected ? Colors.white : Colors.black54,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: const Color(0xFFE9EBEF)),
+      ),
+      child: Row(
+        children: [
+          tab(0, Icons.grid_view_rounded, 'โพสต์', postCount),
+          tab(1, Icons.play_circle_outline, 'วิดีโอ', videoCount),
+        ],
+      ),
+    );
+  }
+
+  Widget _emptyTab(IconData icon, String text) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 40),
+      child: Column(
+        children: [
+          Icon(icon, size: 52, color: Colors.black26),
+          const SizedBox(height: 10),
+          Text(text, style: const TextStyle(color: Colors.black54)),
+        ],
+      ),
+    );
+  }
+
+  Widget _postsTabs() {
     return StreamBuilder<List<ProfilePost>>(
       stream: _postsStream,
       builder: (context, snap) {
@@ -1031,30 +1163,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
             child: Center(child: CircularProgressIndicator()),
           );
         }
-        final posts = snap.data!;
-        if (posts.isEmpty) {
-          return const Padding(
-            padding: EdgeInsets.all(24),
-            child: Center(
-              child: Text(
-                'ยังไม่มีโพสต์',
-                style: TextStyle(color: Colors.black54),
-              ),
-            ),
-          );
-        }
+        final all = snap.data!;
+        final videos = all.where(_isVideo).toList();
+        final posts = all.where((p) => !_isVideo(p)).toList();
+        final shown = _tab == 0 ? posts : videos;
         return Column(
-          children: posts
-              .map(
-                (p) => _PostTile(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _tabSwitcher(posts.length, videos.length),
+            const SizedBox(height: 12),
+            if (shown.isEmpty)
+              _tab == 0
+                  ? _emptyTab(Icons.article_outlined, 'ยังไม่มีโพสต์')
+                  : _emptyTab(Icons.videocam_outlined, 'ยังไม่มีวิดีโอ')
+            else
+              ...shown.map(
+                (p) => _ProfilePostItem(
+                  key: ValueKey('${p.source.name}:${p.sourceId}:${p.post.id}'),
                   item: p,
-                  canEdit: _isMe && p.source != ProfilePostSource.community,
-                  onEdit: () => _editPost(p.post),
+                  currentUid: _myUid,
+                  postService: _postService,
                   canDelete: _isMe,
                   onDelete: () => _deletePost(p),
                 ),
-              )
-              .toList(),
+              ),
+          ],
         );
       },
     );
@@ -1064,18 +1197,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     required bool isPrivate,
     required bool isFollowing,
   }) {
-    if (_isMe || !isPrivate || isFollowing) return _postsSection();
+    if (_isMe || !isPrivate || isFollowing) return _postsTabs();
     return FutureBuilder<FriendRequestState>(
       future: _friendStatus,
       builder: (context, snapshot) {
-        if (snapshot.data == FriendRequestState.friends) return _postsSection();
-        return const Padding(
-          padding: EdgeInsets.all(24),
-          child: Center(
-            child: Text(
-              'บัญชีนี้เป็นส่วนตัว โพสต์จะแสดงเมื่อเป็นเพื่อนกันแล้ว',
-            ),
-          ),
+        if (snapshot.data == FriendRequestState.friends) return _postsTabs();
+        return _emptyTab(
+          Icons.lock_outline,
+          'บัญชีนี้เป็นส่วนตัว โพสต์จะแสดงเมื่อเป็นเพื่อนกันแล้ว',
         );
       },
     );
@@ -1139,164 +1268,294 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
         return _page(
           name.isEmpty ? 'โปรไฟล์' : name,
-          ListView(
-            padding: EdgeInsets.zero,
-            children: [
-              Container(
-                color: Colors.white,
-                child: Column(
-                  children: [
-                    _cover(name, bio, photoUrl, coverUrl, isPrivate),
-                    const SizedBox(height: 10),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Flexible(
-                                child: Text(
-                                  name.isEmpty ? 'ผู้ใช้ไม่ทราบชื่อ' : name,
-                                  textAlign: TextAlign.center,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                              ),
-                              if (isPrivate) ...[
-                                const SizedBox(width: 6),
-                                const Tooltip(
-                                  message: 'บัญชีส่วนตัว',
-                                  child: Icon(
-                                    Icons.lock_outline,
-                                    size: 20,
-                                    color: Colors.black45,
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                          if (bio.isNotEmpty) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              bio,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(color: Colors.black54),
-                            ),
-                          ],
-                          const SizedBox(height: 16),
-                          _actions(name, bio, photoUrl, isFollowing, isPrivate),
-                          const SizedBox(height: 12),
-                          _statsRow(followers, following),
-                          const SizedBox(height: 8),
-                          if (_isMe)
-                            StreamBuilder<
-                              DocumentSnapshot<Map<String, dynamic>>
-                            >(
-                              stream: FirebaseFirestore.instance
-                                  .collection('users')
-                                  .doc(_myUid)
-                                  .collection('private')
-                                  .doc('account')
-                                  .snapshots(),
-                              builder: (context, accountSnap) {
-                                final email =
-                                    accountSnap.data?.data()?['email']
-                                        as String? ??
-                                    '';
-                                return email.isEmpty
-                                    ? const SizedBox.shrink()
-                                    : _infoRow(
-                                        Icons.mail_outline,
-                                        Row(
-                                          children: [
-                                            Expanded(
-                                              child: Text(
-                                                email,
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ),
-                                            IconButton(
-                                              tooltip: 'คัดลอกอีเมล',
-                                              visualDensity:
-                                                  VisualDensity.compact,
-                                              iconSize: 18,
-                                              icon: const Icon(Icons.copy),
-                                              onPressed: () => _copyEmail(email),
-                                            ),
-                                          ],
-                                        ),
-                                      );
-                              },
-                            ),
-                          if (joined != null)
-                            _infoRow(
-                              Icons.calendar_month_outlined,
-                              Text(
-                                'เข้าร่วมเมื่อ ${joined.day} ${_months[joined.month - 1]} ${joined.year + 543}',
-                              ),
-                            ),
-                        ],
-                      ),
+          ColoredBox(
+            color: _pageBg,
+            child: ListView(
+              padding: EdgeInsets.zero,
+              children: [
+                Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.vertical(
+                      bottom: Radius.circular(26),
                     ),
-                  ],
+                    boxShadow: [
+                      BoxShadow(
+                        color: Color(0x14000000),
+                        blurRadius: 16,
+                        offset: Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      _cover(name, bio, photoUrl, coverUrl, isPrivate),
+                      const SizedBox(height: 10),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    name.isEmpty ? 'ผู้ใช้ไม่ทราบชื่อ' : name,
+                                    textAlign: TextAlign.center,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 25,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 0.2,
+                                    ),
+                                  ),
+                                ),
+                                if (isPrivate) ...[
+                                  const SizedBox(width: 6),
+                                  const Tooltip(
+                                    message: 'บัญชีส่วนตัว',
+                                    child: Icon(
+                                      Icons.lock_outline,
+                                      size: 20,
+                                      color: Colors.black45,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                            if (bio.isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                bio,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: Colors.black54,
+                                  height: 1.35,
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 12),
+                            // ป้ายข้อมูล: วันที่เข้าร่วม / อีเมล (เฉพาะของตัวเอง)
+                            Wrap(
+                              alignment: WrapAlignment.center,
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                if (joined != null)
+                                  _chip(
+                                    Icons.calendar_month_outlined,
+                                    'เข้าร่วม ${joined.day} ${_months[joined.month - 1]} ${joined.year + 543}',
+                                  ),
+                                if (isPrivate)
+                                  _chip(Icons.lock_outline, 'บัญชีส่วนตัว'),
+                                if (_isMe)
+                                  StreamBuilder<
+                                    DocumentSnapshot<Map<String, dynamic>>
+                                  >(
+                                    stream: FirebaseFirestore.instance
+                                        .collection('users')
+                                        .doc(_myUid)
+                                        .collection('private')
+                                        .doc('account')
+                                        .snapshots(),
+                                    builder: (context, accountSnap) {
+                                      final email =
+                                          accountSnap.data?.data()?['email']
+                                              as String? ??
+                                          '';
+                                      return email.isEmpty
+                                          ? const SizedBox.shrink()
+                                          : _chip(
+                                              Icons.mail_outline,
+                                              email,
+                                              onTap: () => _copyEmail(email),
+                                            );
+                                    },
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            _actions(
+                              name,
+                              bio,
+                              photoUrl,
+                              isFollowing,
+                              isPrivate,
+                            ),
+                            const SizedBox(height: 12),
+                            _statsRow(followers, following),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  color: _pageBg,
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const SizedBox(height: 4),
+                      _visibleProfilePosts(
+                        isPrivate: isPrivate,
+                        isFollowing: isFollowing,
+                      ),
+                      if (_isMe) ...[
+                        const SizedBox(height: 24),
+                        OutlinedButton.icon(
+                          onPressed: _showBlockedUsers,
+                          icon: const Icon(Icons.block_outlined),
+                          label: const Text('จัดการบัญชีที่บล็อก'),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'โซนอันตราย',
+                          style: TextStyle(
+                            color: Colors.red.shade700,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red,
+                            side: const BorderSide(color: Colors.red),
+                          ),
+                          onPressed: _confirmDeleteAccount,
+                          icon: const Icon(Icons.delete_forever),
+                          label: const Text('ลบบัญชีถาวร'),
+                        ),
+                        const SizedBox(height: 16),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// โพสต์หนึ่งรายการบนโปรไฟล์
+/// - โพสต์ฟีด/เพจ: ใช้ PostCard ตัวเดียวกับหน้าแรก (ไลก์ อีโมจิ คอมเมนต์ แชร์ แก้ไข ลบ รายงาน)
+/// - โพสต์ชุมชน: การ์ดเดียวกันแต่ใช้ปุ่มโต้ตอบของชุมชน (CommunityPostActions)
+/// ถ้าโพสต์อยู่ในเพจ/ชุมชน จะมีป้ายบอกต้นทางไว้ด้านบนการ์ด
+class _ProfilePostItem extends StatelessWidget {
+  final ProfilePost item;
+  final String currentUid;
+  final PostService postService;
+  final bool canDelete;
+  final VoidCallback onDelete;
+  const _ProfilePostItem({
+    required this.item,
+    required this.currentUid,
+    required this.postService,
+    required this.canDelete,
+    required this.onDelete,
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final inCommunity = item.source == ProfilePostSource.community;
+    final inGroup = item.source != ProfilePostSource.personal;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (inGroup) _SourceBadge(item: item),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x12000000),
+                  blurRadius: 10,
+                  offset: Offset(0, 3),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: inCommunity
+                  ? _CommunityPostTile(
+                      item: item,
+                      currentUid: currentUid,
+                      canDelete: canDelete,
+                      onDelete: onDelete,
+                    )
+                  : PostCard(
+                      post: item.post,
+                      currentUid: currentUid,
+                      postService: postService,
+                    ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// ป้าย "โพสต์ในเพจ/ชุมชน: ชื่อ" + ความเป็นส่วนตัวของเพจ/ชุมชนนั้น
+class _SourceBadge extends StatelessWidget {
+  final ProfilePost item;
+  const _SourceBadge({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    final isPage = item.source == ProfilePostSource.page;
+    final ref = FirebaseFirestore.instance
+        .collection(isPage ? 'pages' : 'communities')
+        .doc(item.sourceId);
+    final primary = Theme.of(context).colorScheme.primary;
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: ref.snapshots(),
+      builder: (context, snap) {
+        final data = snap.data?.data();
+        final name = data?['name'] as String? ?? '...';
+        final isPrivate = data?['privacy'] == 'private';
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(6, 0, 6, 6),
+          child: Row(
+            children: [
+              Icon(
+                isPage ? Icons.flag_outlined : Icons.groups_2_outlined,
+                size: 16,
+                color: primary,
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  '${isPage ? 'เพจ' : 'ชุมชน'} $name',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
-              Container(
-                color: _pageBg,
-                padding: const EdgeInsets.all(10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Padding(
-                      padding: EdgeInsets.fromLTRB(4, 6, 4, 10),
-                      child: Text(
-                        'โพสต์',
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    _visibleProfilePosts(
-                      isPrivate: isPrivate,
-                      isFollowing: isFollowing,
-                    ),
-                    if (_isMe) ...[
-                      const SizedBox(height: 24),
-                      OutlinedButton.icon(
-                        onPressed: _showBlockedUsers,
-                        icon: const Icon(Icons.block_outlined),
-                        label: const Text('จัดการบัญชีที่บล็อก'),
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'โซนอันตราย',
-                        style: TextStyle(
-                          color: Colors.red.shade700,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.red,
-                          side: const BorderSide(color: Colors.red),
-                        ),
-                        onPressed: _confirmDeleteAccount,
-                        icon: const Icon(Icons.delete_forever),
-                        label: const Text('ลบบัญชีถาวร'),
-                      ),
-                      const SizedBox(height: 16),
-                    ],
-                  ],
-                ),
+              const SizedBox(width: 6),
+              Icon(
+                isPrivate ? Icons.lock_outline : Icons.public,
+                size: 13,
+                color: Colors.black45,
+              ),
+              const SizedBox(width: 3),
+              Text(
+                isPrivate
+                    ? (isPage ? 'เพจส่วนตัว' : 'ชุมชนส่วนตัว')
+                    : (isPage ? 'เพจสาธารณะ' : 'ชุมชนสาธารณะ'),
+                style: const TextStyle(fontSize: 11, color: Colors.black45),
               ),
             ],
           ),
@@ -1306,218 +1565,105 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 }
 
-class _PostTile extends StatelessWidget {
+/// การ์ดโพสต์ในชุมชนบนโปรไฟล์ — หน้าตาเหมือน PostCard พร้อมปุ่ม ไลก์/อีโมจิ/คอมเมนต์/แชร์
+class _CommunityPostTile extends StatelessWidget {
   final ProfilePost item;
-  final bool canEdit;
-  final VoidCallback onEdit;
+  final String currentUid;
   final bool canDelete;
   final VoidCallback onDelete;
-  const _PostTile({
+  const _CommunityPostTile({
     required this.item,
-    required this.canEdit,
-    required this.onEdit,
+    required this.currentUid,
     required this.canDelete,
     required this.onDelete,
   });
 
   Post get post => item.post;
 
-  static const _grey = TextStyle(fontSize: 11, color: Colors.black54);
-
-  /// ไอคอนบอกว่าโพสต์สาธารณะ / เพื่อน / ส่วนตัว
-  static Widget _privacyIcon(String privacy) {
-    final data = switch (privacy) {
-      'private' => (Icons.lock_outline, 'ส่วนตัว'),
-      'friends' => (Icons.people_outline, 'เพื่อน'),
-      _ => (Icons.public, 'สาธารณะ'),
-    };
-    return Tooltip(
-      message: data.$2,
-      child: Icon(data.$1, size: 14, color: Colors.black54),
-    );
-  }
-
-  /// บรรทัด "โพสต์ในเพจ/ชุมชน: ชื่อ" + ไอคอนความเป็นส่วนตัวของเพจ/ชุมชนนั้น
-  Widget _sourceLine() {
-    final isPage = item.source == ProfilePostSource.page;
-    final ref = FirebaseFirestore.instance
-        .collection(isPage ? 'pages' : 'communities')
-        .doc(item.sourceId);
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: ref.snapshots(),
-      builder: (context, snap) {
-        final data = snap.data?.data();
-        final name = data?['name'] as String? ?? '...';
-        final privacy = data?['privacy'] as String? ?? 'public';
-        return Padding(
-          padding: const EdgeInsets.only(top: 6),
-          child: Row(
-            children: [
-              Icon(
-                isPage ? Icons.flag_outlined : Icons.groups_2_outlined,
-                size: 15,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-              const SizedBox(width: 5),
-              Flexible(
-                child: Text(
-                  '${isPage ? 'โพสต์ในเพจ' : 'โพสต์ในชุมชน'}: $name',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              _privacyIcon(privacy == 'private' ? 'private' : 'public'),
-              const SizedBox(width: 3),
-              Text(
-                privacy == 'private'
-                    ? (isPage ? 'เพจส่วนตัว' : 'ชุมชนส่วนตัว')
-                    : (isPage ? 'เพจสาธารณะ' : 'ชุมชนสาธารณะ'),
-                style: _grey,
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    final inGroup = item.source != ProfilePostSource.personal;
-    return Card(
+    final communityId = item.sourceId ?? '';
+    return Container(
       color: Colors.white,
-      surfaceTintColor: Colors.transparent,
-      elevation: 0.5,
-      margin: const EdgeInsets.only(bottom: 10),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // โพสต์ที่ถูกซ่อน: เจ้าของเห็นสาเหตุและแก้ไขได้ (คนอื่นไม่เห็นโพสต์นี้)
-            if (post.isHiddenNow && canEdit)
-              HiddenPostBanner(
-                hiddenBy: post.hiddenBy,
-                reason: post.hiddenReason,
-                until: post.hiddenUntil,
-                editRejected: post.editRejected,
-                onEdit: onEdit,
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              UserAvatar(uid: post.authorId, radius: 18),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    AuthorName(uid: post.authorId),
+                    Text(
+                      formatRelativeTime(post.createdAt),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Colors.black54,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            Row(
-              children: [
-                UserAvatar(uid: post.authorId, radius: 18),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      AuthorName(uid: post.authorId),
-                      Row(
+              if (canDelete)
+                PopupMenuButton<String>(
+                  onSelected: (v) {
+                    if (v == 'delete') onDelete();
+                  },
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(
+                      value: 'delete',
+                      child: Row(
                         children: [
-                          Text(
-                            formatRelativeTime(post.createdAt),
-                            style: _grey,
+                          Icon(
+                            Icons.delete_outline,
+                            color: Colors.red,
+                            size: 18,
                           ),
-                          if (!inGroup) ...[
-                            const SizedBox(width: 6),
-                            _privacyIcon(post.audience),
-                          ],
+                          SizedBox(width: 8),
+                          Text('ลบโพสต์', style: TextStyle(color: Colors.red)),
                         ],
                       ),
-                    ],
-                  ),
-                ),
-                if (canEdit)
-                  IconButton(
-                    tooltip: 'แก้ไขโพสต์',
-                    onPressed: onEdit,
-                    icon: const Icon(Icons.edit_outlined),
-                  ),
-                if (canDelete)
-                  PopupMenuButton<String>(
-                    onSelected: (v) {
-                      if (v == 'delete') onDelete();
-                    },
-                    itemBuilder: (_) => const [
-                      PopupMenuItem(
-                        value: 'delete',
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.delete_outline,
-                              color: Colors.red,
-                              size: 18,
-                            ),
-                            SizedBox(width: 8),
-                            Text(
-                              'ลบโพสต์',
-                              style: TextStyle(color: Colors.red),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-              ],
-            ),
-            if (inGroup) _sourceLine(),
-            if (post.sharedPostId != null) ...[
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  const Icon(Icons.repeat, size: 15, color: Colors.black54),
-                  const SizedBox(width: 5),
-                  const Text(
-                    'แชร์โพสต์จาก ',
-                    style: TextStyle(fontSize: 12, color: Colors.black54),
-                  ),
-                  if (post.sharedAuthorId != null)
-                    AuthorName(
-                      tappable: true,
-                      uid: post.sharedAuthorId!,
-                      style: const TextStyle(fontSize: 12),
                     ),
-                ],
-              ),
-            ],
-            if (post.content.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              MentionText(post.content, style: const TextStyle(fontSize: 15)),
-            ],
-            if (post.sharedPostId != null) SharedPostPreview(post: post),
-            if (post.mediaUrl != null) ...[
-              const SizedBox(height: 10),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: PostMedia(
-                  url: post.mediaUrl!,
-                  type: post.mediaType,
-                  moreUrls: post.moreMediaUrls,
-                  errorHeight: 120,
+                  ],
                 ),
-              ),
             ],
-            if (post.likeCount > 0) ...[
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  const Icon(Icons.thumb_up, size: 14, color: Colors.blue),
-                  const SizedBox(width: 4),
-                  Text(
-                    '${post.likeCount}',
-                    style: const TextStyle(fontSize: 12, color: Colors.black54),
-                  ),
-                ],
-              ),
-            ],
+          ),
+          if (post.content.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            MentionText(post.content, style: const TextStyle(fontSize: 15)),
           ],
-        ),
+          if (post.mediaUrl != null) ...[
+            const SizedBox(height: 10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: PostMedia(
+                url: post.mediaUrl!,
+                type: post.mediaType,
+                moreUrls: post.moreMediaUrls,
+                errorHeight: 120,
+              ),
+            ),
+          ],
+          CommunityPostActions(
+            communityId: communityId,
+            postId: post.id,
+            uid: currentUid,
+            text: post.content,
+            mediaUrl: post.mediaUrl,
+            likeCount: post.likeCount,
+            dislikeCount: post.dislikeCount,
+            onComments: () => showCommunityPostComments(
+              context,
+              communityId: communityId,
+              postId: post.id,
+              postOwnerId: post.authorId,
+            ),
+          ),
+        ],
       ),
     );
   }

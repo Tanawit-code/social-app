@@ -703,11 +703,25 @@ service cloud.firestore {
       match /messages/{messageId} {
         function parentChat() { return get(/databases/$(database)/documents/chats/$(chatId)).data; }
         function peer() { return parentChat().participants[0] == request.auth.uid ? parentChat().participants[1] : parentChat().participants[0]; }
+        // อ้างอิงโพสต์ที่แชร์เข้าแชท: เก็บแค่ id ไม่คัดลอกเนื้อหา — ผู้รับจะดูโพสต์ได้ก็ต่อเมื่อ rules ของโพสต์นั้นอนุญาต
+        // (โพสต์ในชุมชน/เพจส่วนตัวจึงต้องขอเข้าร่วมก่อน)
+        function validSharedPostRef(ref) {
+          return ref is map
+            && ref.keys().hasOnly(['kind', 'postId', 'communityId', 'pageId'])
+            && ref.kind in ['post', 'page_post', 'community_post']
+            && ref.postId is string && ref.postId.size() > 0 && ref.postId.size() <= 128
+            && (ref.get('communityId', null) == null
+              || (ref.communityId is string && ref.communityId.size() > 0 && ref.communityId.size() <= 128))
+            && (ref.get('pageId', null) == null
+              || (ref.pageId is string && ref.pageId.size() > 0 && ref.pageId.size() <= 128))
+            && (ref.kind != 'community_post' || ref.get('communityId', null) != null)
+            && (ref.kind != 'page_post' || ref.get('pageId', null) != null);
+        }
         allow read: if signedIn() && parentChat().participants.hasAny([request.auth.uid])
           && (parentChat().participants.size() > 2 || !blockedEitherWay(request.auth.uid, peer()));
         allow create: if signedIn() && parentChat().participants.hasAny([request.auth.uid])
           && request.resource.data.senderId == request.auth.uid
-          && request.resource.data.keys().hasOnly(['senderId', 'text', 'imageUrl', 'moreImageUrls', 'videoUrl', 'createdAt'])
+          && request.resource.data.keys().hasOnly(['senderId', 'text', 'imageUrl', 'moreImageUrls', 'videoUrl', 'sharedPost', 'createdAt'])
           && request.resource.data.createdAt == request.time
           && (request.resource.data.get('text', null) == null
             || (request.resource.data.text is string && request.resource.data.text.size() <= 4000))
@@ -719,14 +733,18 @@ service cloud.firestore {
           && (request.resource.data.get('videoUrl', null) == null
             || (request.resource.data.videoUrl is string && request.resource.data.videoUrl.size() <= 600
               && request.resource.data.videoUrl.matches('https://.*')))
+          && (request.resource.data.get('sharedPost', null) == null
+            || validSharedPostRef(request.resource.data.sharedPost))
           && ((request.resource.data.get('text', '') is string && request.resource.data.get('text', '').size() > 0)
             || (request.resource.data.get('imageUrl', '') is string && request.resource.data.get('imageUrl', '').size() > 0)
-            || (request.resource.data.get('videoUrl', '') is string && request.resource.data.get('videoUrl', '').size() > 0))
+            || (request.resource.data.get('videoUrl', '') is string && request.resource.data.get('videoUrl', '').size() > 0)
+            || request.resource.data.get('sharedPost', null) != null)
           && (parentChat().participants.size() > 2 || !blockedEitherWay(request.auth.uid, peer()));
         // ลบข้อความ = soft-delete เท่านั้น (ล้าง text/imageUrl + deleted: true) แก้เนื้อหาอย่างอื่นไม่ได้
         allow update: if signedIn() && (resource.data.senderId == request.auth.uid || parentChat().ownerId == request.auth.uid)
           && request.resource.data.deleted == true
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'imageUrl', 'moreImageUrls', 'videoUrl', 'deleted'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'imageUrl', 'moreImageUrls', 'videoUrl', 'sharedPost', 'deleted'])
+          && request.resource.data.get('sharedPost', null) == null
           && request.resource.data.get('text', null) == null
           && request.resource.data.get('imageUrl', null) == null
           && request.resource.data.get('moreImageUrls', null) == null

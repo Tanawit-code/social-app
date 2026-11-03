@@ -9,6 +9,7 @@ import '../services/notification_service.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/chat_actions.dart';
 import '../widgets/chat_media.dart';
+import '../widgets/shared_post_card.dart';
 import 'home_feed_screen.dart' show AuthorName;
 
 const _messengerBlue = Color(0xFF0084FF);
@@ -458,9 +459,41 @@ class _MessageRow extends StatelessWidget {
     );
 
     final deleted = data['deleted'] == true;
+    final sharedRaw = data['sharedPost'];
+    final shared = sharedRaw is Map ? Map<String, dynamic>.from(sharedRaw) : null;
 
     Widget content;
-    if (deleted) {
+    if (!deleted && shared != null) {
+      // โพสต์ที่แชร์เข้าแชท: ข้อความประกอบ (ถ้ามี) + การ์ดโพสต์
+      content = Column(
+        crossAxisAlignment: mine
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (text.isNotEmpty && text != '👍')
+            Container(
+              margin: const EdgeInsets.only(bottom: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+              decoration: BoxDecoration(
+                color: mine ? _messengerBlue : _peerBubble,
+                borderRadius: radius,
+              ),
+              child: Text(
+                text,
+                style: TextStyle(
+                  fontSize: 15,
+                  color: mine ? Colors.white : Colors.black87,
+                ),
+              ),
+            ),
+          SharedPostCard(
+            shared: shared,
+            width: maxW.clamp(0.0, 280.0).toDouble(),
+          ),
+        ],
+      );
+    } else if (deleted) {
       content = Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
         decoration: BoxDecoration(

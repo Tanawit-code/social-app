@@ -11,6 +11,8 @@ import 'create_post_screen.dart';
 import 'profile_screen.dart';
 import '../widgets/report_dialog.dart';
 import '../widgets/user_avatar.dart';
+import '../widgets/share_post_sheet.dart';
+import '../services/chat_service.dart';
 import '../widgets/post_media.dart';
 import 'pages_screen.dart';
 import '../widgets/suggested_people.dart';
@@ -809,29 +811,73 @@ class _PostCardState extends State<PostCard> {
     );
   }
 
+  /// โพสต์ในเพจส่วนตัว: ส่งต่อได้เฉพาะเป็นลิงก์ในแชท/กลุ่ม (ผู้รับที่ไม่ใช่สมาชิกต้องขอเข้าร่วมก่อน)
+  /// ห้ามคัดลอกเนื้อหาออกไปลงฟีดหรือแอปอื่น เพราะจะหลุดออกนอกเพจส่วนตัว
+  Future<bool> _isFromPrivatePage() async {
+    final pageId = post.pageId;
+    if (pageId == null) return false;
+    try {
+      final page = await FirebaseFirestore.instance
+          .collection('pages')
+          .doc(pageId)
+          .get();
+      return page.data()?['privacy'] == 'private';
+    } catch (_) {
+      // อ่านสถานะเพจไม่ได้ = ถือว่าส่วนตัวไว้ก่อน (ปลอดภัยกว่า)
+      return true;
+    }
+  }
+
   Future<void> _sharePost() async {
+    final privatePage = await _isFromPrivatePage();
+    if (!mounted) return;
     final choice = await showModalBottomSheet<String>(
       context: context,
       builder: (sheetContext) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (post.sharedPostId == null)
+            ListTile(
+              leading: const Icon(Icons.chat_bubble_outline),
+              title: const Text('ส่งในแชท / กลุ่ม'),
+              onTap: () => Navigator.pop(sheetContext, 'chat'),
+            ),
+            if (post.sharedPostId == null && !privatePage)
               ListTile(
                 leading: const Icon(Icons.repeat),
                 title: const Text('แชร์ลงฟีด'),
                 onTap: () => Navigator.pop(sheetContext, 'feed'),
               ),
-            ListTile(
-              leading: const Icon(Icons.ios_share),
-              title: const Text('แชร์ผ่านแอปอื่น'),
-              onTap: () => Navigator.pop(sheetContext, 'external'),
-            ),
+            if (!privatePage)
+              ListTile(
+                leading: const Icon(Icons.ios_share),
+                title: const Text('แชร์ผ่านแอปอื่น'),
+                onTap: () => Navigator.pop(sheetContext, 'external'),
+              ),
+            if (privatePage)
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 4, 16, 12),
+                child: Text(
+                  'โพสต์นี้อยู่ในเพจส่วนตัว ส่งได้เฉพาะในแชท/กลุ่ม และผู้รับต้องเป็นสมาชิกเพจจึงจะดูเนื้อหาได้',
+                  style: TextStyle(fontSize: 12, color: Colors.black54),
+                ),
+              ),
           ],
         ),
       ),
     );
     if (!mounted) return;
+    if (choice == 'chat') {
+      await showSharePostToChat(
+        context,
+        postRef: ChatService.postRef(
+          kind: post.pageId != null ? 'page_post' : 'post',
+          postId: post.id,
+          pageId: post.pageId,
+        ),
+      );
+      return;
+    }
     if (choice == 'feed') {
       final options = await showDialog<_ReshareOptions>(
         context: context,

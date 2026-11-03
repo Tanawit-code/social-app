@@ -11,6 +11,7 @@ import '../utils/image_data.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/chat_actions.dart';
 import '../widgets/chat_media.dart';
+import '../widgets/shared_post_card.dart';
 import '../widgets/report_dialog.dart';
 import '../services/chat_media_service.dart';
 import 'add_group_members_screen.dart';
@@ -768,7 +769,48 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                               msg['createdAt'] as Timestamp?,
                             );
                             final isLike = text == '\u{1F44D}';
-                            final content = deleted
+                            final sharedRaw = msg['sharedPost'];
+                            final shared = !deleted && sharedRaw is Map
+                                ? Map<String, dynamic>.from(sharedRaw)
+                                : null;
+                            final content = shared != null
+                                ? Column(
+                                    crossAxisAlignment: mine
+                                        ? CrossAxisAlignment.end
+                                        : CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (text.isNotEmpty)
+                                        Container(
+                                          margin: const EdgeInsets.only(
+                                            bottom: 4,
+                                          ),
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 13,
+                                            vertical: 9,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: mine
+                                                ? const Color(0xFF0084FF)
+                                                : Colors.white,
+                                            borderRadius: BorderRadius.circular(
+                                              17,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            text,
+                                            style: TextStyle(
+                                              color: mine
+                                                  ? Colors.white
+                                                  : Colors.black87,
+                                              fontSize: 15,
+                                            ),
+                                          ),
+                                        ),
+                                      SharedPostCard(shared: shared),
+                                    ],
+                                  )
+                                : deleted
                                 ? const Text(
                                     'ข้อความถูกลบ',
                                     style: TextStyle(
@@ -841,7 +883,10 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                                             margin: const EdgeInsets.only(
                                               top: 2,
                                             ),
-                                            padding: !hasMedia && !isLike
+                                            padding:
+                                                !hasMedia &&
+                                                    !isLike &&
+                                                    shared == null
                                                 ? const EdgeInsets.symmetric(
                                                     horizontal: 13,
                                                     vertical: 9,
@@ -857,7 +902,9 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                                                           17,
                                                         ),
                                                   )
-                                                : isLike || hasMedia
+                                                : isLike ||
+                                                      hasMedia ||
+                                                      shared != null
                                                 ? null
                                                 : BoxDecoration(
                                                     color: mine

@@ -23,6 +23,8 @@ import '../utils/mention.dart';
 import 'community_moderation_screen.dart';
 import 'members_list_screen.dart';
 import '../widgets/report_dialog.dart';
+import '../widgets/share_post_sheet.dart';
+import '../services/chat_service.dart';
 
 class CommunityDetailScreen extends StatefulWidget {
   final Community community;
@@ -518,7 +520,9 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
                         child: Text(
                           'คุณถูกแบนจากชุมชนนี้ จึงไม่สามารถเข้าร่วม ดู หรือโพสต์ได้',
                           style: TextStyle(
-                            color: Theme.of(context).colorScheme.onErrorContainer,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onErrorContainer,
                           ),
                         ),
                       ),
@@ -891,7 +895,7 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
                                             ),
                                           ),
                                         ),
-                                      _CommunityPostActions(
+                                      CommunityPostActions(
                                         communityId: widget.community.id,
                                         postId: doc.id,
                                         uid: _uid,
@@ -956,7 +960,7 @@ String _communityTime(Timestamp? timestamp) {
   return '${date.day}/${date.month}/${date.year}';
 }
 
-class _CommunityPostActions extends StatelessWidget {
+class CommunityPostActions extends StatelessWidget {
   final String communityId;
   final String postId;
   final String uid;
@@ -965,7 +969,7 @@ class _CommunityPostActions extends StatelessWidget {
   final int likeCount;
   final int dislikeCount;
   final VoidCallback onComments;
-  const _CommunityPostActions({
+  const CommunityPostActions({
     required this.communityId,
     required this.postId,
     required this.uid,
@@ -993,6 +997,57 @@ class _CommunityPostActions extends StatelessWidget {
   }
 
   Future<void> _share(BuildContext context) async {
+    // ชุมชนส่วนตัว: ส่งต่อได้เฉพาะเป็นลิงก์ในแชท/กลุ่ม (ผู้รับต้องขอเข้าร่วมชุมชนก่อนจึงจะดูได้)
+    var privateCommunity = true;
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('communities')
+          .doc(communityId)
+          .get();
+      privateCommunity = (doc.data()?['privacy'] ?? 'public') == 'private';
+    } catch (_) {}
+    if (!context.mounted) return;
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.chat_bubble_outline),
+              title: const Text('ส่งในแชท / กลุ่ม'),
+              onTap: () => Navigator.pop(sheetContext, 'chat'),
+            ),
+            if (!privateCommunity)
+              ListTile(
+                leading: const Icon(Icons.ios_share),
+                title: const Text('แชร์ผ่านแอปอื่น'),
+                onTap: () => Navigator.pop(sheetContext, 'external'),
+              )
+            else
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 4, 16, 12),
+                child: Text(
+                  'โพสต์นี้อยู่ในชุมชนส่วนตัว ส่งได้เฉพาะในแชท/กลุ่ม และผู้รับต้องเป็นสมาชิกชุมชนจึงจะดูเนื้อหาได้',
+                  style: TextStyle(fontSize: 12, color: Colors.black54),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (choice == null || !context.mounted) return;
+    if (choice == 'chat') {
+      await showSharePostToChat(
+        context,
+        postRef: ChatService.postRef(
+          kind: 'community_post',
+          postId: postId,
+          communityId: communityId,
+        ),
+      );
+      return;
+    }
     final parts = <String>[
       if (text.trim().isNotEmpty) Mention.plain(text).trim(),
       if (mediaUrl != null && !mediaUrl!.startsWith('data:')) mediaUrl!,
@@ -1097,6 +1152,30 @@ class _CommunityPostActions extends StatelessWidget {
       ],
     );
   }
+}
+
+/// เปิดหน้าต่างคอมเมนต์ของโพสต์ในชุมชน (ใช้ซ้ำได้จากหน้าอื่น เช่น โปรไฟล์)
+void showCommunityPostComments(
+  BuildContext context, {
+  required String communityId,
+  required String postId,
+  required String postOwnerId,
+  bool canDeleteOthers = false,
+}) {
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    builder: (_) => _CommunityCommentsSheet(
+      communityId: communityId,
+      postId: postId,
+      postOwnerId: postOwnerId,
+      canDeleteOthers: canDeleteOthers,
+      scope: MentionScope.community(
+        communityId,
+        AuthService().currentUser?.uid ?? '',
+      ),
+    ),
+  );
 }
 
 class _CommunityCommentsSheet extends StatefulWidget {
@@ -1386,6 +1465,46 @@ class _CommunityPostScreenState extends State<CommunityPostScreen> {
     ),
   );
 
+  Future<void> _openCommunity() async {
+    final nav = Navigator.of(context);
+    final doc = await _communityRef.get();
+    if (!doc.exists || !mounted) return;
+    nav.push(
+      MaterialPageRoute(
+        builder: (_) =>
+            CommunityDetailScreen(community: Community.fromDoc(doc)),
+      ),
+    );
+  }
+
+  /// ดูโพสต์ไม่ได้ (ชุมชนส่วนตัวที่ยังไม่เป็นสมาชิก / ถูกแบน / โพสต์ไม่มีอยู่)
+  /// พาไปหน้าชุมชนเพื่อขอเข้าร่วมได้
+  Widget _lockedMessage() => Scaffold(
+    appBar: AppBar(title: const Text('โพสต์ในชุมชน')),
+    body: Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.lock_outline, size: 48, color: Colors.black38),
+            const SizedBox(height: 12),
+            const Text(
+              'คุณยังไม่มีสิทธิ์ดูโพสต์นี้\nหากเป็นชุมชนส่วนตัว ต้องขอเข้าร่วมและรอการอนุมัติก่อน',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: _openCommunity,
+              icon: const Icon(Icons.group_outlined),
+              label: const Text('ไปที่ชุมชน'),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
@@ -1400,7 +1519,7 @@ class _CommunityPostScreenState extends State<CommunityPostScreen> {
               .snapshots(),
           builder: (context, snap) {
             if (snap.hasError) {
-              return _message('ไม่พบโพสต์นี้ หรือคุณไม่มีสิทธิ์ดูโพสต์ในชุมชนนี้');
+              return _lockedMessage();
             }
             if (!snap.hasData) {
               return const Scaffold(
@@ -1476,13 +1595,14 @@ class _CommunityPostScreenState extends State<CommunityPostScreen> {
                                 moreUrls: Post.urlList(data['moreMediaUrls']),
                               ),
                             ),
-                          _CommunityPostActions(
+                          CommunityPostActions(
                             communityId: widget.communityId,
                             postId: widget.postId,
                             uid: _uid,
                             text: data['text'] as String? ?? '',
                             mediaUrl: data['mediaUrl'] as String?,
-                            likeCount: (data['likeCount'] as num?)?.toInt() ?? 0,
+                            likeCount:
+                                (data['likeCount'] as num?)?.toInt() ?? 0,
                             dislikeCount:
                                 (data['dislikeCount'] as num?)?.toInt() ?? 0,
                             onComments: () =>

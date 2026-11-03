@@ -14,6 +14,7 @@ import '../services/post_service.dart';
 import 'community_detail_screen.dart';
 import 'event_detail_screen.dart';
 import 'page_detail_screen.dart';
+import 'post_detail_screen.dart';
 import 'profile_screen.dart';
 import '../widgets/user_avatar.dart';
 import '../utils/image_data.dart';
@@ -305,7 +306,8 @@ class _SearchScreenState extends State<SearchScreen> {
                       }
                       if (_onlyMine && p.authorId != _myUid) return false;
                       if (!_inPeriod(p.createdAt)) return false;
-                      if (_query.isNotEmpty && !_has(Mention.plain(p.content))) {
+                      if (_query.isNotEmpty &&
+                          !_has(Mention.plain(p.content))) {
                         return false;
                       }
                       return true;
@@ -332,6 +334,13 @@ class _SearchScreenState extends State<SearchScreen> {
                         if (i == results.length) return _loadMore(loadMore);
                         final p = results[i];
                         return ListTile(
+                          // กดโพสต์เพื่อเปิดดูเต็ม (ไลก์ คอมเมนต์ แชร์ ได้เหมือนในฟีด)
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => PostDetailScreen(postId: p.id),
+                            ),
+                          ),
                           title: Row(
                             children: [
                               Flexible(

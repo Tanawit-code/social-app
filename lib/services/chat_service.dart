@@ -300,11 +300,15 @@ class ChatService {
     String? imageUrl,
     List<String> moreImageUrls = const [],
     String? videoUrl,
+    Map<String, dynamic>? sharedPost,
   }) {
     if (videoUrl != null) return '🎬 วิดีโอ';
     if (imageUrl != null) {
       final count = 1 + moreImageUrls.length;
       return count > 1 ? '📷 รูปภาพ $count รูป' : '📷 รูปภาพ';
+    }
+    if (sharedPost != null && (text == null || text.trim().isEmpty)) {
+      return '🔗 แชร์โพสต์';
     }
     return text!;
   }
@@ -314,10 +318,27 @@ class ChatService {
     String? imageUrl,
     List<String> moreImageUrls = const [],
     String? videoUrl,
+    Map<String, dynamic>? sharedPost,
   }) => {
     'imageUrl': imageUrl,
     if (moreImageUrls.isNotEmpty) 'moreImageUrls': moreImageUrls,
     if (videoUrl != null) 'videoUrl': videoUrl,
+    // อ้างอิงโพสต์ที่แชร์ (เก็บแค่ id — เนื้อหาโหลดสดตอนแสดง ให้ rules ตัดสินสิทธิ์ดู)
+    if (sharedPost != null) 'sharedPost': sharedPost,
+  };
+
+  /// อ้างอิงโพสต์ที่แนบไปกับข้อความแชท (เก็บเฉพาะ id ไม่คัดลอกเนื้อหา)
+  /// kind = 'post' (โพสต์ฟีด) | 'page_post' (โพสต์ในเพจ) | 'community_post' (โพสต์ในชุมชน)
+  static Map<String, dynamic> postRef({
+    required String kind,
+    required String postId,
+    String? communityId,
+    String? pageId,
+  }) => {
+    'kind': kind,
+    'postId': postId,
+    if (communityId != null) 'communityId': communityId,
+    if (pageId != null) 'pageId': pageId,
   };
 
   Future<void> sendGroup({
@@ -327,8 +348,11 @@ class ChatService {
     String? imageUrl,
     List<String> moreImageUrls = const [],
     String? videoUrl,
+    Map<String, dynamic>? sharedPost,
   }) async {
-    assert(text != null || imageUrl != null || videoUrl != null);
+    assert(
+      text != null || imageUrl != null || videoUrl != null || sharedPost != null,
+    );
     final ref = _db.collection('chats').doc(groupId);
     final group = await ref.get();
     final data = group.data();
@@ -343,6 +367,7 @@ class ChatService {
       imageUrl: imageUrl,
       moreImageUrls: moreImageUrls,
       videoUrl: videoUrl,
+      sharedPost: sharedPost,
     );
     await ref.update({
       'lastMessage': preview,
@@ -355,6 +380,7 @@ class ChatService {
         imageUrl: imageUrl,
         moreImageUrls: moreImageUrls,
         videoUrl: videoUrl,
+        sharedPost: sharedPost,
       ),
       'createdAt': FieldValue.serverTimestamp(),
     });
@@ -389,6 +415,7 @@ class ChatService {
       // ลบฟิลด์สื่อรุ่นใหม่ด้วย (ถ้าข้อความไม่มีฟิลด์นี้ จะไม่มีอะไรเปลี่ยน)
       'moreImageUrls': FieldValue.delete(),
       'videoUrl': FieldValue.delete(),
+      'sharedPost': FieldValue.delete(),
     });
     try {
       // ถ้าข้อความที่ลบเป็นข้อความล่าสุด ให้รายการแชทแสดง "ข้อความถูกลบ" ด้วย
@@ -412,14 +439,18 @@ class ChatService {
     String? imageUrl,
     List<String> moreImageUrls = const [],
     String? videoUrl,
+    Map<String, dynamic>? sharedPost,
   }) async {
-    assert(text != null || imageUrl != null || videoUrl != null);
+    assert(
+      text != null || imageUrl != null || videoUrl != null || sharedPost != null,
+    );
     final ref = _db.collection('chats').doc(chatId(fromUid, toUid));
     final preview = _preview(
       text: text,
       imageUrl: imageUrl,
       moreImageUrls: moreImageUrls,
       videoUrl: videoUrl,
+      sharedPost: sharedPost,
     );
 
     // ห้องถูกสร้างแล้วโดย ensureDirectChat; ห้ามแตะ participants (rules บังคับว่าต้องเหมือนเดิมและเรียงเดิม)
@@ -436,6 +467,7 @@ class ChatService {
         imageUrl: imageUrl,
         moreImageUrls: moreImageUrls,
         videoUrl: videoUrl,
+        sharedPost: sharedPost,
       ),
       'createdAt': FieldValue.serverTimestamp(),
     });
