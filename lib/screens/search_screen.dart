@@ -1,4 +1,5 @@
 import '../widgets/privacy_icon.dart';
+import '../utils/mention.dart';
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -304,7 +305,9 @@ class _SearchScreenState extends State<SearchScreen> {
                       }
                       if (_onlyMine && p.authorId != _myUid) return false;
                       if (!_inPeriod(p.createdAt)) return false;
-                      if (_query.isNotEmpty && !_has(p.content)) return false;
+                      if (_query.isNotEmpty && !_has(Mention.plain(p.content))) {
+                        return false;
+                      }
                       return true;
                     }).toList();
                     final canLoadMore = all.length >= _postLimit;
@@ -345,7 +348,7 @@ class _SearchScreenState extends State<SearchScreen> {
                             ],
                           ),
                           subtitle: Text(
-                            p.content,
+                            Mention.plain(p.content),
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                           ),

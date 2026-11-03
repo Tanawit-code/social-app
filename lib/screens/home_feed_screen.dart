@@ -16,7 +16,10 @@ import '../widgets/suggested_people.dart';
 import '../widgets/story_strip.dart';
 import '../widgets/reactions.dart';
 import '../theme/app_theme.dart';
-import '../widgets/text_controller_scope.dart';
+import '../widgets/mention_text.dart';
+import '../widgets/mention_text_field.dart';
+import '../services/mention_service.dart';
+import '../utils/mention.dart';
 import 'reels_screen.dart';
 import 'communities_screen.dart';
 
@@ -350,11 +353,15 @@ class PostCard extends StatefulWidget {
   /// เจ้าของ/ผู้ดูแลเพจที่โพสต์นี้อยู่ — ลบโพสต์ของคนอื่นในเพจได้
   final bool canModerate;
 
+  /// true = เปิดหน้าต่างความคิดเห็นทันที (ใช้ตอนเปิดจากแจ้งเตือนที่ถูกแท็กในคอมเมนต์)
+  final bool autoOpenComments;
+
   const PostCard({
     required this.post,
     required this.currentUid,
     required this.postService,
     this.canModerate = false,
+    this.autoOpenComments = false,
     super.key,
   });
 
@@ -364,6 +371,16 @@ class PostCard extends StatefulWidget {
 
 class _PostCardState extends State<PostCard> {
   bool _deleting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.autoOpenComments) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _openComments();
+      });
+    }
+  }
 
   Post get post => widget.post;
   String get currentUid => widget.currentUid;
@@ -495,7 +512,7 @@ class _PostCardState extends State<PostCard> {
     }
     if (choice != 'external') return;
     final parts = <String>[
-      if (post.content.trim().isNotEmpty) post.content.trim(),
+      if (post.content.trim().isNotEmpty) Mention.plain(post.content).trim(),
       if (post.mediaUrl != null && post.mediaUrl!.trim().isNotEmpty)
         post.mediaUrl!.trim(),
       'โพสต์นี้แชร์จาก Social (รหัสโพสต์: ${post.id})',
@@ -531,6 +548,7 @@ class _PostCardState extends State<PostCard> {
         postOwnerId: post.authorId,
         currentUid: currentUid,
         postService: postService,
+        scope: MentionScope.post(post, currentUid),
       ),
     );
   }
@@ -791,7 +809,10 @@ class _PostCardState extends State<PostCard> {
                     ),
                   ),
                 if (post.content.isNotEmpty)
-                  Text(post.content, style: const TextStyle(fontSize: 15)),
+                  MentionText(
+                    post.content,
+                    style: const TextStyle(fontSize: 15),
+                  ),
                 if (post.sharedPostId != null) SharedPostPreview(post: post),
                 if (post.mediaUrl != null) ...[
                   const SizedBox(height: 8),
@@ -990,15 +1011,23 @@ class EditPostDialog extends StatefulWidget {
 }
 
 class _EditPostDialogState extends State<EditPostDialog> {
-  late final TextEditingController _contentController;
+  late final MentionController _contentController;
   late String _audience;
+  late MentionScope _scope;
   bool _saving = false;
+
+  String get _uid => AuthService().currentUser?.uid ?? '';
+
+  MentionScope _scopeFor(String audience) => widget.post.pageId != null
+      ? MentionScope.page(widget.post.pageId!, _uid)
+      : MentionScope.audience(audience, _uid);
 
   @override
   void initState() {
     super.initState();
-    _contentController = TextEditingController(text: widget.post.content);
+    _contentController = MentionController(encoded: widget.post.content);
     _audience = widget.post.audience;
+    _scope = _scopeFor(_audience);
   }
 
   @override
@@ -1012,7 +1041,7 @@ class _EditPostDialogState extends State<EditPostDialog> {
     try {
       await widget.postService.updatePost(
         widget.post.id,
-        _contentController.text.trim(),
+        _contentController.encoded.trim(),
         audience: widget.post.pageId == null ? _audience : null,
       );
       if (mounted) Navigator.pop(context, true);
@@ -1034,14 +1063,15 @@ class _EditPostDialogState extends State<EditPostDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            TextField(
+            MentionTextField(
               controller: _contentController,
+              scope: _scope,
               autofocus: true,
               minLines: 3,
               maxLines: 7,
               maxLength: 10000,
               decoration: const InputDecoration(
-                labelText: 'ข้อความ',
+                labelText: 'ข้อความ (พิมพ์ @ เพื่อแท็กเพื่อน)',
                 border: OutlineInputBorder(),
                 alignLabelWithHint: true,
               ),
@@ -1071,7 +1101,12 @@ class _EditPostDialogState extends State<EditPostDialog> {
                 onChanged: _saving
                     ? null
                     : (value) {
-                        if (value != null) setState(() => _audience = value);
+                        if (value != null) {
+                          setState(() {
+                            _audience = value;
+                            _scope = _scopeFor(value);
+                          });
+                        }
                       },
               ),
             ],
@@ -1112,8 +1147,10 @@ class _ReshareDialog extends StatefulWidget {
 }
 
 class _ReshareDialogState extends State<_ReshareDialog> {
-  final _caption = TextEditingController();
+  final _caption = MentionController();
   String _audience = 'public';
+  final _uid = AuthService().currentUser?.uid ?? '';
+  late MentionScope _scope = MentionScope.audience(_audience, _uid);
 
   @override
   void dispose() {
@@ -1127,13 +1164,14 @@ class _ReshareDialogState extends State<_ReshareDialog> {
     content: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        TextField(
+        MentionTextField(
           controller: _caption,
+          scope: _scope,
           maxLength: 10000,
           minLines: 2,
           maxLines: 5,
           decoration: const InputDecoration(
-            hintText: 'เขียนข้อความประกอบโพสต์นี้',
+            hintText: 'เขียนข้อความประกอบโพสต์นี้ (พิมพ์ @ เพื่อแท็ก)',
             border: OutlineInputBorder(),
           ),
         ),
@@ -1150,7 +1188,12 @@ class _ReshareDialogState extends State<_ReshareDialog> {
             DropdownMenuItem(value: 'private', child: Text('ส่วนตัว')),
           ],
           onChanged: (value) {
-            if (value != null) setState(() => _audience = value);
+            if (value != null) {
+              setState(() {
+                _audience = value;
+                _scope = MentionScope.audience(value, _uid);
+              });
+            }
           },
         ),
       ],
@@ -1163,7 +1206,7 @@ class _ReshareDialogState extends State<_ReshareDialog> {
       FilledButton(
         onPressed: () => Navigator.pop(
           context,
-          _ReshareOptions(_caption.text.trim(), _audience),
+          _ReshareOptions(_caption.encoded.trim(), _audience),
         ),
         child: const Text('แชร์'),
       ),
@@ -1189,7 +1232,10 @@ class SharedPostPreview extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if ((post.sharedContent ?? '').isNotEmpty)
-          Text(post.sharedContent!, style: const TextStyle(fontSize: 14)),
+          MentionText(
+            post.sharedContent!,
+            style: const TextStyle(fontSize: 14),
+          ),
         if (post.sharedMediaUrl != null) ...[
           const SizedBox(height: 8),
           ClipRRect(
@@ -1212,12 +1258,14 @@ class _CommentsSheet extends StatefulWidget {
   final String postOwnerId;
   final String currentUid;
   final PostService postService;
+  final MentionScope scope;
 
   const _CommentsSheet({
     required this.postId,
     required this.postOwnerId,
     required this.currentUid,
     required this.postService,
+    required this.scope,
   });
 
   @override
@@ -1225,7 +1273,7 @@ class _CommentsSheet extends StatefulWidget {
 }
 
 class _CommentsSheetState extends State<_CommentsSheet> {
-  final _controller = TextEditingController();
+  final _controller = MentionController();
   bool _sending = false;
 
   @override
@@ -1237,12 +1285,13 @@ class _CommentsSheetState extends State<_CommentsSheet> {
   Future<void> _editComment(String commentId, String oldText) async {
     final updated = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => TextControllerScope(
-        text: oldText,
+      builder: (dialogContext) => MentionControllerScope(
+        encoded: oldText,
         builder: (_, controller) => AlertDialog(
           title: const Text('แก้ไขความคิดเห็น'),
-          content: TextField(
+          content: MentionTextField(
             controller: controller,
+            scope: widget.scope,
             autofocus: true,
             maxLength: 2000,
             minLines: 2,
@@ -1256,7 +1305,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
             ),
             FilledButton(
               onPressed: () =>
-                  Navigator.pop(dialogContext, controller.text.trim()),
+                  Navigator.pop(dialogContext, controller.encoded.trim()),
               child: const Text('บันทึก'),
             ),
           ],
@@ -1319,7 +1368,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
       );
 
   Future<void> _send() async {
-    final text = _controller.text.trim();
+    final text = _controller.encoded.trim();
     if (text.isEmpty) return;
     setState(() => _sending = true);
     try {
@@ -1406,7 +1455,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                                       ),
                                     ),
                                     const SizedBox(height: 2),
-                                    Text(
+                                    MentionText(
                                       data['text'] ?? '',
                                       style: const TextStyle(fontSize: 13),
                                     ),
@@ -1464,12 +1513,17 @@ class _CommentsSheetState extends State<_CommentsSheet> {
               child: Padding(
                 padding: const EdgeInsets.all(8),
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Expanded(
-                      child: TextField(
+                      child: MentionTextField(
                         controller: _controller,
+                        scope: widget.scope,
+                        suggestionsAbove: true,
                         decoration: InputDecoration(
-                          hintText: 'แสดงความคิดเห็น...',
+                          hintText: widget.scope.enabled
+                              ? 'แสดงความคิดเห็น... (พิมพ์ @ เพื่อแท็ก)'
+                              : 'แสดงความคิดเห็น...',
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 14,
                             vertical: 10,

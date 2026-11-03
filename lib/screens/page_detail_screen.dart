@@ -62,6 +62,71 @@ class _PageDetailScreenState extends State<PageDetailScreen> {
     }
   }
 
+  Future<bool> _confirm(String title, String message, String okLabel) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('ยกเลิก'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(okLabel),
+          ),
+        ],
+      ),
+    );
+    return ok == true;
+  }
+
+  Future<void> _leave() async {
+    if (!await _confirm(
+      'ออกจากเพจ?',
+      'คุณจะไม่ได้เป็นสมาชิกและโพสต์ในเพจนี้ไม่ได้ (เพจส่วนตัวต้องขอเข้าร่วมใหม่)',
+      'ออกจากเพจ',
+    )) {
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      await _service.leavePage(widget.pageId, _uid);
+      _toast('ออกจากเพจแล้ว');
+    } catch (e) {
+      _toast(
+        'ออกจากเพจไม่สำเร็จ: ${e.toString().replaceFirst('Exception: ', '')}',
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _deletePage() async {
+    if (!await _confirm(
+      'ลบเพจนี้ถาวร?',
+      'เพจและโพสต์ทั้งหมดในเพจจะถูกลบและกู้คืนไม่ได้',
+      'ลบเพจ',
+    )) {
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      await _service.deletePage(widget.pageId, _uid);
+      if (!mounted) return;
+      _toast('ลบเพจแล้ว');
+      Navigator.pop(context);
+    } catch (e) {
+      _toast(
+        'ลบเพจไม่สำเร็จ: ${e.toString().replaceFirst('Exception: ', '')}',
+      );
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _changePhoto() async {
     try {
       final picked = await ImagePicker().pickImage(
@@ -151,10 +216,12 @@ class _PageDetailScreenState extends State<PageDetailScreen> {
                 onPressed: _busy ? null : _changePhoto,
                 icon: const Icon(Icons.edit_outlined),
               ),
-            if (!isOwner)
-              PopupMenuButton<String>(
-                onSelected: (value) {
-                  if (value != 'report') return;
+            PopupMenuButton<String>(
+              enabled: !_busy,
+              onSelected: (value) {
+                if (value == 'leave') _leave();
+                if (value == 'delete') _deletePage();
+                if (value == 'report') {
                   showReportFlow(
                     context,
                     title: 'รายงานเพจ',
@@ -162,11 +229,29 @@ class _PageDetailScreenState extends State<PageDetailScreen> {
                     targetId: widget.pageId,
                     reportedUid: ownerId,
                   );
-                },
-                itemBuilder: (_) => const [
-                  PopupMenuItem(value: 'report', child: Text('รายงานเพจ')),
-                ],
-              ),
+                }
+              },
+              itemBuilder: (_) => [
+                if (isMember && !isOwner)
+                  const PopupMenuItem(
+                    value: 'leave',
+                    child: Text('ออกจากเพจ'),
+                  ),
+                if (isOwner)
+                  const PopupMenuItem(
+                    value: 'delete',
+                    child: Text(
+                      'ลบเพจ',
+                      style: TextStyle(color: Colors.red),
+                    ),
+                  ),
+                if (!isOwner)
+                  const PopupMenuItem(
+                    value: 'report',
+                    child: Text('รายงานเพจ'),
+                  ),
+              ],
+            ),
           ],
         ),
         floatingActionButton: isMember
@@ -293,6 +378,14 @@ class _PageDetailScreenState extends State<PageDetailScreen> {
                             ),
                           ],
                         ),
+                      ),
+                    ],
+                    if (isMember && !isOwner) ...[
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        onPressed: _busy ? null : _leave,
+                        icon: const Icon(Icons.logout, size: 18),
+                        label: const Text('ออกจากเพจ'),
                       ),
                     ],
                     if (!isMember && !isBanned && !isPrivate) ...[

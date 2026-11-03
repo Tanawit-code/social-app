@@ -4,6 +4,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class NotifType {
   static const like = 'like';
   static const comment = 'comment';
+  static const mentionPost = 'mention_post';
+  static const mentionComment = 'mention_comment';
   static const message = 'message';
   static const follow = 'follow';
   static const followRequest = 'follow_request';
@@ -31,6 +33,8 @@ class NotifSource {
     switch (type) {
       case NotifType.like:
       case NotifType.comment:
+      case NotifType.mentionPost:
+      case NotifType.mentionComment:
         return post;
       case NotifType.message:
         return chat;

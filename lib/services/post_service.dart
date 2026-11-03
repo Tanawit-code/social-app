@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/post_model.dart';
+import '../utils/mention.dart';
+import 'mention_service.dart';
 import 'notification_service.dart';
 import 'safety_service.dart';
 
@@ -44,7 +46,52 @@ class PostService {
       audience: audience,
     );
     final doc = await _posts.add(post.toMap());
+    await _notifyMentions(
+      postId: doc.id,
+      text: content,
+      fromUid: authorId,
+      inComment: false,
+      pageId: pageId,
+      audience: audience,
+    );
     return doc.id;
+  }
+
+  /// แจ้งเตือนคนที่ถูกแท็กในโพสต์/คอมเมนต์ของโพสต์ [postId] (ฟีดหรือเพจ)
+  /// [skip] = คนที่เคยถูกแท็กไว้แล้ว (ตอนแก้ไข), [exclude] = คนที่ได้แจ้งเตือนอื่นของการกระทำเดียวกันแล้ว
+  Future<void> _notifyMentions({
+    required String postId,
+    required String text,
+    required String fromUid,
+    required bool inComment,
+    String? pageId,
+    String audience = 'public',
+    Set<String> skip = const {},
+    Set<String> exclude = const {},
+  }) async {
+    if (Mention.uids(text).isEmpty) return;
+    if (pageId == null && audience == 'private') return;
+    String? pageName;
+    if (pageId != null) {
+      try {
+        final page = await FirebaseFirestore.instance
+            .collection('pages')
+            .doc(pageId)
+            .get();
+        pageName = page.data()?['name'] as String?;
+      } catch (_) {}
+    }
+    await MentionService.notify(
+      text: text,
+      fromUid: fromUid,
+      inComment: inComment,
+      postId: postId,
+      source: pageId == null ? NotifSource.post : NotifSource.page,
+      sourceId: pageId,
+      sourceName: pageName,
+      skip: skip,
+      exclude: exclude,
+    );
   }
 
   Future<String> sharePost({
@@ -70,6 +117,13 @@ class PostService {
       sharedMoreMediaUrls: original.moreMediaUrls,
     );
     final doc = await _posts.add(share.toMap());
+    await _notifyMentions(
+      postId: doc.id,
+      text: share.content,
+      fromUid: authorId,
+      inComment: false,
+      audience: audience,
+    );
     return doc.id;
   }
 
@@ -338,11 +392,26 @@ class PostService {
     String postId,
     String newContent, {
     String? audience,
-  }) {
-    return _posts.doc(postId).update({
+  }) async {
+    Map<String, dynamic>? old;
+    try {
+      old = (await _posts.doc(postId).get()).data();
+    } catch (_) {}
+    await _posts.doc(postId).update({
       'content': newContent,
       if (audience != null) 'audience': audience,
     });
+    if (old == null) return;
+    // แจ้งเฉพาะคนที่เพิ่งถูกแท็กเพิ่มจากการแก้ไขครั้งนี้
+    await _notifyMentions(
+      postId: postId,
+      text: newContent,
+      fromUid: old['authorId'] as String? ?? '',
+      inComment: false,
+      pageId: old['pageId'] as String?,
+      audience: audience ?? old['audience'] as String? ?? 'public',
+      skip: Mention.uids(old['content'] as String?),
+    );
   }
 
   /// à¸¥à¸šà¹‚à¸žà¸ªà¸•à¹Œ
@@ -450,16 +519,31 @@ class PostService {
       'text': text,
       'createdAt': FieldValue.serverTimestamp(),
     });
+    Map<String, dynamic>? postData;
     try {
       final post = await _posts.doc(postId).get();
+      postData = post.data();
       await NotificationService().create(
         toUid: post.data()?['authorId'] as String? ?? '',
         fromUid: authorId,
         type: NotifType.comment,
         postId: postId,
-        text: text.length > 80 ? text.substring(0, 80) : text,
+        text: Mention.plain(text).length > 80
+            ? Mention.plain(text).substring(0, 80)
+            : Mention.plain(text),
       );
     } catch (_) {}
+    if (postData == null) return;
+    await _notifyMentions(
+      postId: postId,
+      text: text,
+      fromUid: authorId,
+      inComment: true,
+      pageId: postData['pageId'] as String?,
+      audience: postData['audience'] as String? ?? 'public',
+      // เจ้าของโพสต์ได้แจ้งเตือน "คอมเมนต์" ไปแล้ว ไม่ต้องแจ้งซ้ำ
+      exclude: {postData['authorId'] as String? ?? ''},
+    );
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> commentsStream(String postId) {
@@ -474,9 +558,26 @@ class PostService {
     required String postId,
     required String commentId,
     required String text,
-  }) => _posts.doc(postId).collection('comments').doc(commentId).update({
-    'text': text,
-  });
+  }) async {
+    final ref = _posts.doc(postId).collection('comments').doc(commentId);
+    Map<String, dynamic>? old;
+    Map<String, dynamic>? postData;
+    try {
+      old = (await ref.get()).data();
+      postData = (await _posts.doc(postId).get()).data();
+    } catch (_) {}
+    await ref.update({'text': text});
+    if (old == null || postData == null) return;
+    await _notifyMentions(
+      postId: postId,
+      text: text,
+      fromUid: old['authorId'] as String? ?? '',
+      inComment: true,
+      pageId: postData['pageId'] as String?,
+      audience: postData['audience'] as String? ?? 'public',
+      skip: Mention.uids(old['text'] as String?),
+    );
+  }
 
   Future<void> deleteComment({
     required String postId,

@@ -212,4 +212,52 @@ class PageService {
       _pages.doc(pageId).update({
         'bannedIds': FieldValue.arrayRemove([uid]),
       });
+
+  /// สมาชิกออกจากเพจด้วยตัวเอง (เจ้าของออกไม่ได้ ต้องลบเพจแทน)
+  /// ถอดสิทธิ์ผู้ดูแลของตัวเองพร้อมกันถ้าเป็นผู้ดูแล
+  Future<void> leavePage(String pageId, String uid) async {
+    final ref = _pages.doc(pageId);
+    await _db.runTransaction((transaction) async {
+      final snap = await transaction.get(ref);
+      final data = snap.data();
+      if (!snap.exists || data == null) throw Exception('ไม่พบเพจนี้');
+      if (data['ownerId'] == uid) {
+        throw Exception('เจ้าของเพจออกจากเพจไม่ได้ ต้องลบเพจแทน');
+      }
+      final members = List<String>.from(data['memberIds'] ?? const []);
+      if (!members.contains(uid)) return;
+      final mods = List<String>.from(data['moderatorIds'] ?? const []);
+      transaction.update(ref, {
+        'memberIds': FieldValue.arrayRemove([uid]),
+        if (mods.contains(uid)) 'moderatorIds': FieldValue.arrayRemove([uid]),
+      });
+    });
+  }
+
+  /// ลบเพจถาวร (เฉพาะเจ้าของ) — ลบโพสต์ทั้งหมดของเพจก่อน แล้วค่อยลบตัวเพจ
+  /// ถ้าขั้นตอนใดล้มเหลวเพจยังอยู่ และกดลบซ้ำได้
+  Future<void> deletePage(String pageId, String ownerId) async {
+    final ref = _pages.doc(pageId);
+    final snap = await ref.get();
+    if (!snap.exists) return;
+    if (snap.data()?['ownerId'] != ownerId) {
+      throw Exception('เฉพาะเจ้าของเพจเท่านั้นที่ลบเพจได้');
+    }
+    final posts = await _db
+        .collection('posts')
+        .where('pageId', isEqualTo: pageId)
+        .get();
+    await _deleteInChunks(posts.docs.map((d) => d.reference).toList());
+    await ref.delete();
+  }
+
+  Future<void> _deleteInChunks(List<DocumentReference> refs) async {
+    for (var i = 0; i < refs.length; i += 400) {
+      final batch = _db.batch();
+      for (final r in refs.skip(i).take(400)) {
+        batch.delete(r);
+      }
+      await batch.commit();
+    }
+  }
 }

@@ -15,7 +15,10 @@ import '../services/storage_service.dart';
 import '../services/video_upload_service.dart';
 import '../widgets/post_media.dart';
 import '../widgets/user_avatar.dart';
-import '../widgets/text_controller_scope.dart';
+import '../widgets/mention_text.dart';
+import '../widgets/mention_text_field.dart';
+import '../services/mention_service.dart';
+import '../utils/mention.dart';
 import 'community_moderation_screen.dart';
 import 'members_list_screen.dart';
 import '../widgets/report_dialog.dart';
@@ -30,7 +33,11 @@ class CommunityDetailScreen extends StatefulWidget {
 class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
   final _uid = AuthService().currentUser?.uid ?? '';
   final _service = CommunityService();
-  final _text = TextEditingController();
+  final _text = MentionController();
+  late final MentionScope _mentionScope = MentionScope.community(
+    widget.community.id,
+    _uid,
+  );
   final List<Uint8List> _images = []; // เลือกได้หลายรูป (สูงสุด maxPostImages)
   Uint8List? _videoBytes;
   String? _videoName;
@@ -86,6 +93,7 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
   Future<void> _post() async {
     if (_text.text.trim().isEmpty && _images.isEmpty && _videoBytes == null)
       return;
+    final encodedText = _text.encoded;
     setState(() => _busy = true);
     try {
       String? mediaUrl;
@@ -110,7 +118,7 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
       await _service.createPost(
         communityId: widget.community.id,
         authorId: _uid,
-        text: _text.text,
+        text: encodedText,
         mediaUrl: mediaUrl,
         mediaType: mediaType,
         moreMediaUrls: moreMediaUrls,
@@ -222,15 +230,87 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
     ),
   );
 
+  Future<bool> _confirmDanger(
+    String title,
+    String message,
+    String okLabel,
+  ) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('ยกเลิก'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(okLabel),
+          ),
+        ],
+      ),
+    );
+    return ok == true;
+  }
+
+  Future<void> _leaveCommunity() async {
+    if (!await _confirmDanger(
+      'ออกจากชุมชน?',
+      'คุณจะไม่ได้เป็นสมาชิกและโพสต์ในชุมชนนี้ไม่ได้ (ชุมชนส่วนตัวต้องขอเข้าร่วมใหม่)',
+      'ออกจากชุมชน',
+    )) {
+      return;
+    }
+    try {
+      await _service.leave(widget.community.id, _uid);
+      if (!mounted) return;
+      _message('ออกจากชุมชนแล้ว');
+      if (widget.community.privacy == 'private') Navigator.pop(context);
+    } catch (e) {
+      _message('ออกจากชุมชนไม่สำเร็จ: $e');
+    }
+  }
+
+  Future<void> _deleteCommunity() async {
+    if (!await _confirmDanger(
+      'ลบชุมชนนี้ถาวร?',
+      'ชุมชน โพสต์ คอมเมนต์ และสมาชิกทั้งหมดจะถูกลบและกู้คืนไม่ได้',
+      'ลบชุมชน',
+    )) {
+      return;
+    }
+    final nav = Navigator.of(context);
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const PopScope(
+        canPop: false,
+        child: Center(child: CircularProgressIndicator()),
+      ),
+    );
+    try {
+      await _service.deleteCommunity(widget.community.id, _uid);
+      nav.pop(); // ปิด loading
+      nav.pop(); // ออกจากหน้าชุมชน
+    } catch (e) {
+      nav.pop();
+      _message('ลบชุมชนไม่สำเร็จ: $e');
+    }
+  }
+
   Future<void> _editPost(String postId, String oldText) async {
     final newText = await showDialog<String>(
       context: context,
-      builder: (ctx) => TextControllerScope(
-        text: oldText,
+      builder: (ctx) => MentionControllerScope(
+        encoded: oldText,
         builder: (_, controller) => AlertDialog(
           title: const Text('แก้ไขโพสต์'),
-          content: TextField(
+          content: MentionTextField(
             controller: controller,
+            scope: _mentionScope,
             maxLines: 5,
             maxLength: 5000,
           ),
@@ -240,7 +320,7 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
               child: const Text('ยกเลิก'),
             ),
             FilledButton(
-              onPressed: () => Navigator.pop(ctx, controller.text),
+              onPressed: () => Navigator.pop(ctx, controller.encoded),
               child: const Text('บันทึก'),
             ),
           ],
@@ -273,6 +353,7 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
         postId: postId,
         postOwnerId: postOwnerId,
         canDeleteOthers: canModerate,
+        scope: _mentionScope,
       ),
     );
   }
@@ -320,19 +401,22 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
                       contextId: widget.community.id,
                     );
                   }
-                  if (value == 'leave') {
-                    try {
-                      await _service.leave(widget.community.id, _uid);
-                    } catch (e) {
-                      _message('ออกจากชุมชนไม่สำเร็จ: $e');
-                    }
-                  }
+                  if (value == 'leave') _leaveCommunity();
+                  if (value == 'delete') _deleteCommunity();
                 },
                 itemBuilder: (_) => [
                   if (isMember && role != 'owner')
                     const PopupMenuItem(
                       value: 'leave',
                       child: Text('ออกจากชุมชน'),
+                    ),
+                  if (_uid == widget.community.ownerId)
+                    const PopupMenuItem(
+                      value: 'delete',
+                      child: Text(
+                        'ลบชุมชน',
+                        style: TextStyle(color: Colors.red),
+                      ),
                     ),
                   if (_uid != widget.community.ownerId)
                     const PopupMenuItem(
@@ -485,12 +569,14 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
                           UserAvatar(uid: _uid),
                           const SizedBox(width: 8),
                           Expanded(
-                            child: TextField(
+                            child: MentionTextField(
                               controller: _text,
+                              scope: _mentionScope,
                               maxLength: 5000,
                               maxLines: 2,
                               decoration: const InputDecoration(
-                                hintText: 'เขียนโพสต์ในชุมชน',
+                                hintText:
+                                    'เขียนโพสต์ในชุมชน (พิมพ์ @ เพื่อแท็ก)',
                                 border: OutlineInputBorder(),
                                 counterText: '',
                               ),
@@ -747,7 +833,7 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
                                           padding: const EdgeInsets.only(
                                             top: 8,
                                           ),
-                                          child: Text(
+                                          child: MentionText(
                                             data['text'] as String? ?? '',
                                           ),
                                         ),
@@ -867,7 +953,7 @@ class _CommunityPostActions extends StatelessWidget {
 
   Future<void> _share(BuildContext context) async {
     final parts = <String>[
-      if (text.trim().isNotEmpty) text.trim(),
+      if (text.trim().isNotEmpty) Mention.plain(text).trim(),
       if (mediaUrl != null && !mediaUrl!.startsWith('data:')) mediaUrl!,
       'โพสต์นี้แชร์จากชุมชนใน Social',
     ];
@@ -977,11 +1063,13 @@ class _CommunityCommentsSheet extends StatefulWidget {
   final String postId;
   final String postOwnerId;
   final bool canDeleteOthers;
+  final MentionScope scope;
   const _CommunityCommentsSheet({
     required this.communityId,
     required this.postId,
     required this.postOwnerId,
     required this.canDeleteOthers,
+    required this.scope,
   });
 
   @override
@@ -991,7 +1079,7 @@ class _CommunityCommentsSheet extends StatefulWidget {
 
 class _CommunityCommentsSheetState extends State<_CommunityCommentsSheet> {
   final _uid = AuthService().currentUser?.uid ?? '';
-  final _text = TextEditingController();
+  final _text = MentionController();
   final _service = CommunityService();
   bool _busy = false;
 
@@ -1009,7 +1097,7 @@ class _CommunityCommentsSheetState extends State<_CommunityCommentsSheet> {
         communityId: widget.communityId,
         postId: widget.postId,
         authorId: _uid,
-        text: _text.text,
+        text: _text.encoded,
       );
       _text.clear();
     } catch (e) {
@@ -1025,12 +1113,13 @@ class _CommunityCommentsSheetState extends State<_CommunityCommentsSheet> {
   Future<void> _edit(String commentId, String oldText) async {
     final newText = await showDialog<String>(
       context: context,
-      builder: (ctx) => TextControllerScope(
-        text: oldText,
+      builder: (ctx) => MentionControllerScope(
+        encoded: oldText,
         builder: (_, controller) => AlertDialog(
           title: const Text('แก้ไขคอมเมนต์'),
-          content: TextField(
+          content: MentionTextField(
             controller: controller,
+            scope: widget.scope,
             maxLength: 2000,
             maxLines: 4,
           ),
@@ -1040,7 +1129,7 @@ class _CommunityCommentsSheetState extends State<_CommunityCommentsSheet> {
               child: const Text('ยกเลิก'),
             ),
             FilledButton(
-              onPressed: () => Navigator.pop(ctx, controller.text),
+              onPressed: () => Navigator.pop(ctx, controller.encoded),
               child: const Text('บันทึก'),
             ),
           ],
@@ -1098,7 +1187,7 @@ class _CommunityCommentsSheetState extends State<_CommunityCommentsSheet> {
                     subtitle: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(data['text'] as String? ?? ''),
+                        MentionText(data['text'] as String? ?? ''),
                         Text(
                           _communityTime(data['createdAt'] as Timestamp?),
                           style: const TextStyle(
@@ -1173,14 +1262,17 @@ class _CommunityCommentsSheetState extends State<_CommunityCommentsSheet> {
               MediaQuery.of(context).viewInsets.bottom + 8,
             ),
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Expanded(
-                  child: TextField(
+                  child: MentionTextField(
                     controller: _text,
+                    scope: widget.scope,
+                    suggestionsAbove: true,
                     maxLength: 2000,
                     maxLines: 2,
                     decoration: const InputDecoration(
-                      hintText: 'เขียนคอมเมนต์',
+                      hintText: 'เขียนคอมเมนต์ (พิมพ์ @ เพื่อแท็ก)',
                       counterText: '',
                       border: OutlineInputBorder(),
                     ),
@@ -1197,4 +1289,174 @@ class _CommunityCommentsSheetState extends State<_CommunityCommentsSheet> {
       ],
     ),
   );
+}
+
+/// หน้าเปิดโพสต์ของชุมชนโพสต์เดียว (ใช้เมื่อกดแจ้งเตือนที่ถูกแท็ก/ถูกใจ/คอมเมนต์)
+class CommunityPostScreen extends StatefulWidget {
+  final String communityId;
+  final String postId;
+
+  /// true = เปิดหน้าต่างคอมเมนต์ทันที
+  final bool openComments;
+  const CommunityPostScreen({
+    required this.communityId,
+    required this.postId,
+    this.openComments = false,
+    super.key,
+  });
+
+  @override
+  State<CommunityPostScreen> createState() => _CommunityPostScreenState();
+}
+
+class _CommunityPostScreenState extends State<CommunityPostScreen> {
+  final _uid = AuthService().currentUser?.uid ?? '';
+  late final MentionScope _scope = MentionScope.community(
+    widget.communityId,
+    _uid,
+  );
+  late final DocumentReference<Map<String, dynamic>> _communityRef =
+      FirebaseFirestore.instance
+          .collection('communities')
+          .doc(widget.communityId);
+  bool _commentsOpened = false;
+
+  void _openComments(String postOwnerId, bool canModerate) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _CommunityCommentsSheet(
+        communityId: widget.communityId,
+        postId: widget.postId,
+        postOwnerId: postOwnerId,
+        canDeleteOthers: canModerate,
+        scope: _scope,
+      ),
+    );
+  }
+
+  Widget _message(String text) => Scaffold(
+    appBar: AppBar(title: const Text('โพสต์ในชุมชน')),
+    body: Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Text(text, textAlign: TextAlign.center),
+      ),
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: _communityRef.collection('members').doc(_uid).snapshots(),
+      builder: (context, memberSnap) {
+        final role = memberSnap.data?.data()?['role'] as String? ?? 'member';
+        final canModerate = role == 'owner' || role == 'moderator';
+        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          stream: _communityRef
+              .collection('posts')
+              .doc(widget.postId)
+              .snapshots(),
+          builder: (context, snap) {
+            if (snap.hasError) {
+              return _message('ไม่พบโพสต์นี้ หรือคุณไม่มีสิทธิ์ดูโพสต์ในชุมชนนี้');
+            }
+            if (!snap.hasData) {
+              return const Scaffold(
+                body: Center(child: CircularProgressIndicator()),
+              );
+            }
+            final data = snap.data!.data();
+            if (data == null) return _message('โพสต์นี้ถูกลบแล้ว');
+            final authorId = data['authorId'] as String? ?? '';
+            if (widget.openComments && !_commentsOpened) {
+              _commentsOpened = true;
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) _openComments(authorId, canModerate);
+              });
+            }
+            return Scaffold(
+              appBar: AppBar(
+                title: const Text('โพสต์ในชุมชน'),
+                actions: [
+                  TextButton(
+                    onPressed: () async {
+                      final nav = Navigator.of(context);
+                      final doc = await _communityRef.get();
+                      if (!doc.exists || !mounted) return;
+                      nav.push(
+                        MaterialPageRoute(
+                          builder: (_) => CommunityDetailScreen(
+                            community: Community.fromDoc(doc),
+                          ),
+                        ),
+                      );
+                    },
+                    child: const Text('ไปที่ชุมชน'),
+                  ),
+                ],
+              ),
+              body: ListView(
+                padding: const EdgeInsets.all(12),
+                children: [
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              UserAvatar(
+                                uid: authorId,
+                                radius: 18,
+                                tappable: true,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: ProfileLink(
+                                  uid: authorId,
+                                  child: _MemberName(uid: authorId),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if ((data['text'] as String? ?? '').isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: MentionText(data['text'] as String? ?? ''),
+                            ),
+                          if (data['mediaUrl'] is String)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: PostMedia(
+                                url: data['mediaUrl'] as String,
+                                type: data['mediaType'] as String?,
+                                moreUrls: Post.urlList(data['moreMediaUrls']),
+                              ),
+                            ),
+                          _CommunityPostActions(
+                            communityId: widget.communityId,
+                            postId: widget.postId,
+                            uid: _uid,
+                            text: data['text'] as String? ?? '',
+                            mediaUrl: data['mediaUrl'] as String?,
+                            likeCount: (data['likeCount'] as num?)?.toInt() ?? 0,
+                            dislikeCount:
+                                (data['dislikeCount'] as num?)?.toInt() ?? 0,
+                            onComments: () =>
+                                _openComments(authorId, canModerate),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 }

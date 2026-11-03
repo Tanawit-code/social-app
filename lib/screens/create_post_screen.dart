@@ -5,6 +5,8 @@ import '../services/auth_service.dart';
 import '../services/post_service.dart';
 import '../services/storage_service.dart';
 import '../services/video_upload_service.dart';
+import '../services/mention_service.dart';
+import '../widgets/mention_text_field.dart';
 
 class CreatePostScreen extends StatefulWidget {
   final String? pageId;
@@ -15,7 +17,7 @@ class CreatePostScreen extends StatefulWidget {
 }
 
 class _CreatePostScreenState extends State<CreatePostScreen> {
-  final _contentController = TextEditingController();
+  final _contentController = MentionController();
   final _authService = AuthService();
   final _postService = PostService();
   final _storageService = StorageService();
@@ -31,6 +33,21 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   bool _shareAsReel = false;
   String _audience = 'public';
   String? _errorText;
+  late MentionScope _mentionScope;
+
+  @override
+  void initState() {
+    super.initState();
+    _mentionScope = _scopeFor(_audience);
+  }
+
+  /// แท็กได้ใครบ้าง: เพจ = ตามความเป็นสาธารณะ/ส่วนตัวของเพจ, โพสต์ฟีด = ตามผู้ชมที่เลือก
+  MentionScope _scopeFor(String audience) {
+    final uid = _authService.currentUser?.uid ?? '';
+    return widget.pageId != null
+        ? MentionScope.page(widget.pageId!, uid)
+        : MentionScope.audience(audience, uid);
+  }
 
   @override
   void dispose() {
@@ -125,7 +142,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   }
 
   Future<void> _submit() async {
-    final content = _contentController.text.trim();
+    final content = _contentController.encoded.trim();
     final user = _authService.currentUser;
 
     if (user == null) {
@@ -222,12 +239,18 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                   style: const TextStyle(color: Colors.red, fontSize: 13),
                 ),
               ),
-            TextField(
+            MentionTextField(
               controller: _contentController,
+              scope: _mentionScope,
               maxLines: 6,
-              decoration: const InputDecoration(
-                hintText: 'คุณกำลังคิดอะไรอยู่?',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                hintText: _mentionScope.enabled
+                    ? 'คุณกำลังคิดอะไรอยู่? (พิมพ์ @ เพื่อแท็กเพื่อน)'
+                    : 'คุณกำลังคิดอะไรอยู่?',
+                helperText: _mentionScope.enabled
+                    ? null
+                    : 'โพสต์ส่วนตัว/เฉพาะเพื่อนของคนอื่น ไม่สามารถแท็กได้',
+                border: const OutlineInputBorder(),
               ),
             ),
             if (widget.pageId == null) ...[
@@ -256,7 +279,12 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                 onChanged: _submitting
                     ? null
                     : (value) {
-                        if (value != null) setState(() => _audience = value);
+                        if (value != null) {
+                          setState(() {
+                            _audience = value;
+                            _mentionScope = _scopeFor(value);
+                          });
+                        }
                       },
               ),
             ],

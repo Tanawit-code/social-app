@@ -1,4 +1,5 @@
 import '../widgets/privacy_icon.dart';
+import '../widgets/mention_text.dart';
 import 'package:flutter/material.dart';
 import '../models/post_model.dart';
 import '../services/auth_service.dart';
@@ -84,8 +85,9 @@ class ReelsScreen extends StatelessWidget {
                           if (reel.content.trim().isNotEmpty)
                             Padding(
                               padding: const EdgeInsets.only(top: 8),
-                              child: Text(
+                              child: MentionText(
                                 reel.content,
+                                mentionColor: const Color(0xFF90CAF9),
                                 maxLines: 3,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(

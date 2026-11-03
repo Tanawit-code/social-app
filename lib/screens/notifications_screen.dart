@@ -9,6 +9,7 @@ import 'chat_screen.dart';
 import 'community_detail_screen.dart';
 import 'community_moderation_screen.dart';
 import 'page_detail_screen.dart';
+import 'post_detail_screen.dart';
 import 'profile_screen.dart';
 import 'home_feed_screen.dart' show AuthorName;
 import 'privacy_settings_screen.dart';
@@ -77,6 +78,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return 'ถูกใจโพสต์ของคุณ';
       case NotifType.comment:
         return 'แสดงความคิดเห็นในโพสต์ของคุณ';
+      case NotifType.mentionPost:
+        return 'แท็กคุณในโพสต์';
+      case NotifType.mentionComment:
+        return 'แท็กคุณในความคิดเห็น';
       case NotifType.message:
         return 'ส่งข้อความถึงคุณ';
       case NotifType.follow:
@@ -108,6 +113,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return Icons.thumb_up;
       case NotifType.comment:
         return Icons.comment;
+      case NotifType.mentionPost:
+      case NotifType.mentionComment:
+        return Icons.alternate_email;
       case NotifType.message:
         return Icons.chat_bubble;
       case NotifType.follow:
@@ -194,6 +202,30 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final from = (d['fromUid'] ?? '') as String;
     final source = (d['source'] ?? NotifSource.fromType(type)) as String;
     final sourceId = (d['sourceId'] ?? '') as String;
+    // แจ้งเตือนที่ผูกกับโพสต์ (แท็ก/ถูกใจ/คอมเมนต์) → เปิดโพสต์นั้นโดยตรง
+    final postId = (d['postId'] ?? '') as String;
+    const postTypes = [
+      NotifType.mentionPost,
+      NotifType.mentionComment,
+      NotifType.like,
+      NotifType.comment,
+    ];
+    if (postId.isNotEmpty && postTypes.contains(type)) {
+      final openComments =
+          type == NotifType.mentionComment || type == NotifType.comment;
+      if (source == NotifSource.community && sourceId.isNotEmpty) {
+        _push(
+          CommunityPostScreen(
+            communityId: sourceId,
+            postId: postId,
+            openComments: openComments,
+          ),
+        );
+      } else {
+        _push(PostDetailScreen(postId: postId, openComments: openComments));
+      }
+      return;
+    }
     switch (source) {
       case NotifSource.community:
         if (sourceId.isNotEmpty) {
@@ -220,6 +252,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   bool _tappable(Map<String, dynamic> d) {
     final type = (d['type'] ?? '') as String;
     final source = (d['source'] ?? NotifSource.fromType(type)) as String;
+    final postId = (d['postId'] ?? '') as String;
+    if (postId.isNotEmpty &&
+        [
+          NotifType.mentionPost,
+          NotifType.mentionComment,
+          NotifType.like,
+          NotifType.comment,
+        ].contains(type)) {
+      return true;
+    }
     return source != NotifSource.post;
   }
 

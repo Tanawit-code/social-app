@@ -1,4 +1,5 @@
 import '../widgets/profile_link.dart';
+import '../utils/mention.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../models/community_model.dart';
@@ -382,7 +383,7 @@ class _ReportCardState extends State<_ReportCard> {
                       style: TextStyle(color: scheme.outline),
                     );
                   }
-                  final text = (t['text'] as String? ?? '').trim();
+                  final text = Mention.plain(t['text'] as String?).trim();
                   final hasMedia = t['mediaUrl'] != null;
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,

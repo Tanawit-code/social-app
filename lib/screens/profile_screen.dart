@@ -1,4 +1,5 @@
 import '../widgets/text_controller_scope.dart';
+import '../widgets/mention_text.dart';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import '../widgets/report_dialog.dart';
@@ -1311,7 +1312,7 @@ class _PostTile extends StatelessWidget {
             ],
             if (post.content.isNotEmpty) ...[
               const SizedBox(height: 10),
-              Text(post.content, style: const TextStyle(fontSize: 15)),
+              MentionText(post.content, style: const TextStyle(fontSize: 15)),
             ],
             if (post.sharedPostId != null) SharedPostPreview(post: post),
             if (post.mediaUrl != null) ...[
