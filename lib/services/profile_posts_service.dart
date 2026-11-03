@@ -34,7 +34,10 @@ class ProfilePostsService {
 
     void publish() {
       if (closed) return;
-      final all = groups.values.expand((e) => e).toList()
+      final all = groups.values
+          .expand((e) => e)
+          .where((p) => !p.post.isHiddenFor(viewerId))
+          .toList()
         ..sort(
           (a, b) =>
               (b.post.createdAt?.millisecondsSinceEpoch ?? 9007199254740991)
@@ -86,6 +89,10 @@ class ProfilePostsService {
           createdAt: data['createdAt'] as Timestamp?,
           likeCount: (data['likeCount'] as num?)?.toInt() ?? 0,
           dislikeCount: (data['dislikeCount'] as num?)?.toInt() ?? 0,
+          hidden: data['hidden'] == true,
+          hiddenUntil: data['hiddenUntil'] as Timestamp?,
+          hiddenBy: data['hiddenBy'] as String?,
+          hiddenReason: data['hiddenReason'] as String?,
         ),
         ProfilePostSource.community,
         communityId,

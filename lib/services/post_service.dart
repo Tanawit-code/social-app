@@ -181,6 +181,7 @@ class PostService {
                 (post) =>
                     !hiddenPostIds.contains(post.id) &&
                     !mutedAuthorIds.contains(post.authorId) &&
+                    !post.isHiddenFor(viewerId) &&
                     ids.add(post.id),
               )
               .take(limit)

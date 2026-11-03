@@ -13,7 +13,6 @@ import 'create_post_screen.dart';
 import 'members_list_screen.dart';
 import 'page_moderation_screen.dart';
 import '../widgets/join_requests_section.dart';
-import '../widgets/brand_customizer.dart';
 
 class PageDetailScreen extends StatefulWidget {
   final String pageId;
@@ -156,34 +155,6 @@ class _PageDetailScreenState extends State<PageDetailScreen> {
     }
   }
 
-
-  Future<void> _customizePage() async {
-    final snap = await _service.page(widget.pageId).first;
-    final data = snap.data() ?? const <String, dynamic>{};
-    final result = await showBrandCustomizer(
-      context,
-      uid: _uid,
-      currentImage: data['coverUrl'] as String? ?? '',
-      currentColor: data['themeColor'] as String? ?? '#6750A4',
-      imageLabel: 'ภาพปกเพจ',
-    );
-    if (result == null || !mounted) return;
-    setState(() => _busy = true);
-    try {
-      await _service.updateBrand(
-        pageId: widget.pageId,
-        ownerId: _uid,
-        coverUrl: result['coverUrl'] ?? '',
-        themeColor: result['themeColor'] ?? '#6750A4',
-      );
-      _toast('บันทึกการตกแต่งเพจแล้ว');
-    } catch (e) {
-      _toast(e.toString().replaceFirst('Exception: ', ''));
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
   Future<void> _compose() async {
     await Navigator.push(
       context,
@@ -227,12 +198,6 @@ class _PageDetailScreenState extends State<PageDetailScreen> {
         appBar: AppBar(
           title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
           actions: [
-            if (isOwner)
-              IconButton(
-                tooltip: 'ตกแต่งเพจ',
-                onPressed: _busy ? null : _customizePage,
-                icon: const Icon(Icons.palette_outlined),
-              ),
             if (canModerate)
               IconButton(
                 tooltip: 'เครื่องมือผู้ดูแล',
@@ -305,22 +270,6 @@ class _PageDetailScreenState extends State<PageDetailScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      height: 120,
-                      width: double.infinity,
-                      decoration: BoxDecoration(
-                        color: _parseBrandColor(data['themeColor'] as String? ?? '#6750A4'),
-                        borderRadius: BorderRadius.circular(12),
-                        image: (data['coverUrl'] as String? ?? '').isEmpty
-                            ? null
-                            : DecorationImage(
-                                image: imageProviderFor(data['coverUrl'] as String?)!,
-                                fit: BoxFit.cover,
-                                colorFilter: ColorFilter.mode(Colors.black.withOpacity(0.18), BlendMode.darken),
-                              ),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
                     Center(
                       child: CircleAvatar(
                         radius: 38,
@@ -525,7 +474,13 @@ class _PageDetailScreenState extends State<PageDetailScreen> {
                     });
                   final postService = PostService();
                   return Column(
-                    children: docs.map((doc) {
+                    children: docs
+                        .where(
+                          (d) =>
+                              canModerate ||
+                              !Post.fromDoc(d).isHiddenFor(_uid),
+                        )
+                        .map((doc) {
                       final post = Post.fromDoc(doc);
                       return Padding(
                         key: ValueKey(post.id),
@@ -546,9 +501,4 @@ class _PageDetailScreenState extends State<PageDetailScreen> {
       );
     },
   );
-}
-
-Color _parseBrandColor(String value) {
-  final parsed = int.tryParse(value.replaceFirst('#', ''), radix: 16) ?? 0x6750A4;
-  return Color(0xFF000000 | parsed);
 }

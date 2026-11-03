@@ -7,6 +7,15 @@ initializeApp();
 
 exports.checkEmailForReset = require('./password_reset').checkEmailForReset;
 
+// ระบบรายงาน/ซ่อนโพสต์/ตรวจการแก้ไข (functions/moderation.js)
+Object.assign(exports, require('./moderation'));
+
+
+exports.checkEmailForReset = require('./password_reset').checkEmailForReset;
+
+// ระบบรายงาน/ซ่อนโพสต์/ตรวจการแก้ไข (functions/moderation.js)
+Object.assign(exports, require('./moderation'));
+
 // ข้อความ push ตามชนิดแจ้งเตือน — ให้ตรงกับหน้าแจ้งเตือนในแอป (lib/screens/notifications_screen.dart)
 const SOURCE_LABEL = {
   post: 'โพสต์',
@@ -15,6 +24,7 @@ const SOURCE_LABEL = {
   chat: 'แชท',
   community: 'ชุมชน',
   page: 'เพจ',
+  moderation: 'การดูแลระบบ',
 };
 const ACTION_TEXT = {
   like: 'ถูกใจโพสต์ของคุณ',
@@ -30,6 +40,10 @@ const ACTION_TEXT = {
   page_join_request: 'ขอเข้าร่วมเพจของคุณ',
   page_join_approved: 'อนุมัติให้คุณเข้าร่วมเพจแล้ว',
   page_join_declined: 'ปฏิเสธคำขอเข้าร่วมเพจของคุณ',
+  admin_report: 'มีรายงานใหม่รอตรวจสอบ',
+  post_hidden: 'โพสต์ของคุณถูกซ่อน',
+  post_restored: 'โพสต์ของคุณกลับมาแสดงแล้ว',
+  post_edit_rejected: 'การแก้ไขโพสต์ยังไม่เพียงพอ',
 };
 const SOURCE_BY_TYPE = {
   like: 'post', comment: 'post', message: 'chat', follow: 'follow', follow_request: 'follow',
@@ -50,7 +64,7 @@ exports.sendUserPush = onDocumentCreated(
     const [accountSnap, tokenSnap, senderSnap] = await Promise.all([
       userRef.collection('private').doc('account').get(),
       userRef.collection('deviceTokens').get(),
-      notification.fromUid ? db.collection('users').doc(notification.fromUid).get() : null,
+      notification.fromUid && notification.fromUid !== 'system' ? db.collection('users').doc(notification.fromUid).get() : null,
     ]);
     const account = accountSnap.data() || {};
     if (account.pushEnabled !== true || tokenSnap.empty) return;
@@ -65,9 +79,12 @@ exports.sendUserPush = onDocumentCreated(
       ? 'ข้อความใหม่'
       : (notification.sourceName ? `${sourceLabel} · ${notification.sourceName}` : sourceLabel);
     const action = ACTION_TEXT[notification.type] || 'มีกิจกรรมกับบัญชีของคุณ';
-    const body = notification.type === 'comment' && notification.text
-      ? `${senderName} ${action}: ${notification.text}`
-      : `${senderName} ${action}`;
+    // แจ้งเตือนจากระบบ (ดูแลโพสต์) ไม่มีผู้ส่ง — ใช้ข้อความที่ระบบเขียนไว้เลย
+    const body = notification.fromUid === 'system'
+      ? (notification.text || action)
+      : notification.type === 'comment' && notification.text
+        ? `${senderName} ${action}: ${notification.text}`
+        : `${senderName} ${action}`;
     const tokens = tokenSnap.docs.map((doc) => ({ id: doc.id, token: doc.data().token })).filter((item) => item.token);
     if (tokens.length === 0) return;
 

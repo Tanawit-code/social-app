@@ -1,3 +1,4 @@
+import '../widgets/moderation_banner.dart';
 import 'dart:async';
 import '../widgets/profile_link.dart';
 import '../widgets/privacy_icon.dart';
@@ -22,8 +23,6 @@ import '../utils/mention.dart';
 import 'community_moderation_screen.dart';
 import 'members_list_screen.dart';
 import '../widgets/report_dialog.dart';
-import '../widgets/brand_customizer.dart';
-import '../utils/image_data.dart';
 
 class CommunityDetailScreen extends StatefulWidget {
   final Community community;
@@ -44,22 +43,12 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
   Uint8List? _videoBytes;
   String? _videoName;
   bool _busy = false;
-  bool _banned = false;
-  String _communityCoverUrl = '';
-  String _communityThemeColor = '#6750A4'; // ผู้ใช้นี้ถูกแบนจากชุมชนนี้หรือไม่
+  bool _banned = false; // ผู้ใช้นี้ถูกแบนจากชุมชนนี้หรือไม่
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _bannedSub;
 
   @override
   void initState() {
     super.initState();
-    FirebaseFirestore.instance.collection('communities').doc(widget.community.id).get().then((snap) {
-      if (!mounted) return;
-      final data = snap.data() ?? const <String, dynamic>{};
-      setState(() {
-        _communityCoverUrl = data['coverUrl'] as String? ?? '';
-        _communityThemeColor = data['themeColor'] as String? ?? '#6750A4';
-      });
-    });
     // ถ้า rules ยังไม่ได้ deploy (อ่านเอกสารแบนไม่ได้) จะถือว่าไม่ถูกแบนและไม่ crash
     _bannedSub = FirebaseFirestore.instance
         .collection('communities')
@@ -370,37 +359,6 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
     );
   }
 
-
-  Future<void> _customizeCommunity() async {
-    final ref = FirebaseFirestore.instance.collection('communities').doc(widget.community.id);
-    final snap = await ref.get();
-    final data = snap.data() ?? const <String, dynamic>{};
-    final result = await showBrandCustomizer(
-      context,
-      uid: _uid,
-      currentImage: data['coverUrl'] as String? ?? '',
-      currentColor: data['themeColor'] as String? ?? '#6750A4',
-      imageLabel: 'ภาพปกชุมชน',
-    );
-    if (result == null || !mounted) return;
-    try {
-      await _service.updateBrand(
-        communityId: widget.community.id,
-        ownerId: _uid,
-        coverUrl: result['coverUrl'] ?? '',
-        themeColor: result['themeColor'] ?? '#6750A4',
-      );
-      if (mounted) setState(() { _communityCoverUrl = result['coverUrl'] ?? ''; _communityThemeColor = result['themeColor'] ?? '#6750A4'; });
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('บันทึกการตกแต่งชุมชนแล้ว')),
-      );
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
-      );
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final communityRef = FirebaseFirestore.instance
@@ -419,12 +377,6 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
           appBar: AppBar(
             title: Text(widget.community.name),
             actions: [
-              if (_uid == widget.community.ownerId)
-                IconButton(
-                  tooltip: 'ตกแต่งชุมชน',
-                  onPressed: _busy ? null : _customizeCommunity,
-                  icon: const Icon(Icons.palette_outlined),
-                ),
               if (canModerate)
                 IconButton(
                   tooltip: 'เครื่องมือผู้ดูแล',
@@ -481,14 +433,7 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: _brandColorFromHex(_communityThemeColor),
-                  image: _communityCoverUrl.isEmpty ? null : DecorationImage(
-                    image: imageProviderFor(_communityCoverUrl)!,
-                    fit: BoxFit.cover,
-                    colorFilter: ColorFilter.mode(Colors.black.withOpacity(0.38), BlendMode.darken),
-                  ),
-                ),
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -771,10 +716,18 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
                             return const Center(
                               child: Text('ชุมชนนี้ยังไม่มีโพสต์'),
                             );
+                          // โพสต์ที่ถูกซ่อนโดยระบบดูแลโพสต์: เจ้าของโพสต์และผู้ดูแลชุมชนยังเห็น คนอื่นไม่เห็น
+                          final visibleDocs = snap.data!.docs
+                              .where(
+                                (d) =>
+                                    canModerate ||
+                                    !moderationHiddenFor(d.data(), _uid),
+                              )
+                              .toList();
                           return ListView.builder(
-                            itemCount: snap.data!.docs.length,
+                            itemCount: visibleDocs.length,
                             itemBuilder: (context, index) {
-                              final doc = snap.data!.docs[index];
+                              final doc = visibleDocs[index];
                               final data = doc.data();
                               final authorId =
                                   data['authorId'] as String? ?? '';
@@ -786,6 +739,38 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
+                                      if (moderationHiddenNow(data) &&
+                                          authorId == _uid)
+                                        HiddenPostBanner.fromData(
+                                          data,
+                                          onEdit: () => _editPost(
+                                            doc.id,
+                                            data['text'] as String? ?? '',
+                                          ),
+                                        )
+                                      else if (moderationHiddenNow(data))
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            bottom: 8,
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              Icon(
+                                                Icons.visibility_off,
+                                                size: 16,
+                                                color: Colors.orange.shade800,
+                                              ),
+                                              const SizedBox(width: 6),
+                                              Text(
+                                                'โพสต์นี้ถูกซ่อนจากสมาชิก (เห็นเฉพาะผู้ดูแล)',
+                                                style: TextStyle(
+                                                  fontSize: 12.5,
+                                                  color: Colors.orange.shade900,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
                                       Row(
                                         children: [
                                           UserAvatar(
@@ -1515,9 +1500,4 @@ class _CommunityPostScreenState extends State<CommunityPostScreen> {
       },
     );
   }
-}
-
-Color _brandColorFromHex(String value) {
-  final parsed = int.tryParse(value.replaceFirst('#', ''), radix: 16) ?? 0x6750A4;
-  return Color(0xFF000000 | parsed);
 }

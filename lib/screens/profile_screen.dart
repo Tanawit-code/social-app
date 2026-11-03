@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import '../widgets/report_dialog.dart';
+import '../widgets/moderation_banner.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/post_model.dart';
@@ -1399,6 +1400,15 @@ class _PostTile extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // โพสต์ที่ถูกซ่อน: เจ้าของเห็นสาเหตุและแก้ไขได้ (คนอื่นไม่เห็นโพสต์นี้)
+            if (post.isHiddenNow && canEdit)
+              HiddenPostBanner(
+                hiddenBy: post.hiddenBy,
+                reason: post.hiddenReason,
+                until: post.hiddenUntil,
+                editRejected: post.editRejected,
+                onEdit: onEdit,
+              ),
             Row(
               children: [
                 UserAvatar(uid: post.authorId, radius: 18),

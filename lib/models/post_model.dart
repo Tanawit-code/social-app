@@ -26,6 +26,16 @@ class Post {
   final int likeCount;
   final int dislikeCount;
 
+  /// สถานะซ่อนโดยระบบดูแลโพสต์ (เขียนโดย Cloud Functions เท่านั้น)
+  /// hiddenUntil == null ขณะ hidden = ซ่อนจนกว่าเจ้าของจะแก้ไข
+  final bool hidden;
+  final Timestamp? hiddenUntil;
+  final String? hiddenBy; // 'reports' | 'admin'
+  final String? hiddenReason;
+
+  /// เจ้าของเคยแก้ไขโพสต์ที่ถูกซ่อนแล้ว แต่ระบบตรวจแล้วว่ายังไม่เพียงพอ
+  final bool editRejected;
+
   Post({
     required this.id,
     required this.authorId,
@@ -45,7 +55,20 @@ class Post {
     this.createdAt,
     this.likeCount = 0,
     this.dislikeCount = 0,
+    this.hidden = false,
+    this.hiddenUntil,
+    this.hiddenBy,
+    this.hiddenReason,
+    this.editRejected = false,
   });
+
+  /// ตอนนี้ถูกซ่อนอยู่หรือไม่ (ซ่อนแบบมีกำหนดวัน หมดเวลาแล้วถือว่าแสดงปกติ)
+  bool get isHiddenNow =>
+      hidden &&
+      (hiddenUntil == null || hiddenUntil!.toDate().isAfter(DateTime.now()));
+
+  /// ซ่อนจากผู้ดู [viewerUid] หรือไม่ — เจ้าของโพสต์ยังเห็นโพสต์ตัวเองเสมอ (เพื่อแก้ไข)
+  bool isHiddenFor(String viewerUid) => isHiddenNow && authorId != viewerUid;
 
   /// Every photo of the post in display order (empty for video / text posts).
   List<String> get imageUrls => mediaUrl == null || mediaType == 'video'
@@ -77,6 +100,11 @@ class Post {
       createdAt: data['createdAt'],
       likeCount: data['likeCount'] ?? 0,
       dislikeCount: data['dislikeCount'] ?? 0,
+      hidden: data['hidden'] == true,
+      hiddenUntil: data['hiddenUntil'] as Timestamp?,
+      hiddenBy: data['hiddenBy'] as String?,
+      hiddenReason: data['hiddenReason'] as String?,
+      editRejected: data['editRejectedAt'] != null,
     );
   }
 

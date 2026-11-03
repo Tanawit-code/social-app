@@ -13,6 +13,7 @@ import 'post_detail_screen.dart';
 import 'profile_screen.dart';
 import 'home_feed_screen.dart' show AuthorName;
 import 'privacy_settings_screen.dart';
+import 'admin_reports_screen.dart';
 import '../widgets/user_avatar.dart';
 
 /// หมวดสำหรับตัวกรองด้านบนของหน้า
@@ -52,7 +53,20 @@ const _styles = <String, _SourceStyle>{
     Color(0xFFF4511E),
   ),
   NotifSource.page: _SourceStyle('เพจ', Icons.flag_outlined, Color(0xFFD81B60)),
+  NotifSource.moderation: _SourceStyle(
+    'การดูแลระบบ',
+    Icons.shield_outlined,
+    Color(0xFFEF6C00),
+  ),
 };
+
+/// แจ้งเตือนจากระบบดูแลโพสต์ (ไม่มีผู้ส่ง — fromUid = 'system')
+const _moderationTypes = [
+  NotifType.adminReport,
+  NotifType.postHidden,
+  NotifType.postRestored,
+  NotifType.postEditRejected,
+];
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -102,6 +116,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return 'อนุมัติให้คุณเข้าร่วมเพจแล้ว';
       case NotifType.pageJoinDeclined:
         return 'ปฏิเสธคำขอเข้าร่วมเพจของคุณ';
+      case NotifType.adminReport:
+        return 'มีรายงานใหม่รอตรวจสอบ';
+      case NotifType.postHidden:
+        return 'โพสต์ของคุณถูกซ่อน';
+      case NotifType.postRestored:
+        return 'โพสต์ของคุณกลับมาแสดงแล้ว';
+      case NotifType.postEditRejected:
+        return 'การแก้ไขโพสต์ยังไม่เพียงพอ';
       default:
         return 'มีความเคลื่อนไหวใหม่';
     }
@@ -133,6 +155,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       case NotifType.communityJoinDeclined:
       case NotifType.pageJoinDeclined:
         return Icons.cancel;
+      case NotifType.adminReport:
+        return Icons.flag;
+      case NotifType.postHidden:
+        return Icons.visibility_off;
+      case NotifType.postRestored:
+        return Icons.visibility;
+      case NotifType.postEditRejected:
+        return Icons.edit_off;
       default:
         return Icons.notifications;
     }
@@ -204,11 +234,18 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final sourceId = (d['sourceId'] ?? '') as String;
     // แจ้งเตือนที่ผูกกับโพสต์ (แท็ก/ถูกใจ/คอมเมนต์) → เปิดโพสต์นั้นโดยตรง
     final postId = (d['postId'] ?? '') as String;
+    if (type == NotifType.adminReport) {
+      _push(const AdminReportsScreen());
+      return;
+    }
     const postTypes = [
       NotifType.mentionPost,
       NotifType.mentionComment,
       NotifType.like,
       NotifType.comment,
+      NotifType.postHidden,
+      NotifType.postRestored,
+      NotifType.postEditRejected,
     ];
     if (postId.isNotEmpty && postTypes.contains(type)) {
       final openComments =
@@ -259,9 +296,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           NotifType.mentionComment,
           NotifType.like,
           NotifType.comment,
+          NotifType.postHidden,
+          NotifType.postRestored,
+          NotifType.postEditRejected,
         ].contains(type)) {
       return true;
     }
+    if (type == NotifType.adminReport) return true;
     return source != NotifSource.post;
   }
 
@@ -330,6 +371,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final style = _styles[source] ?? _styles[NotifSource.post]!;
     final text = d['text'] as String?;
     final unread = _unreadIds.contains(doc.id);
+    final isSystem = _moderationTypes.contains(type) || from == 'system';
     return Material(
       color: unread
           ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.07)
@@ -339,7 +381,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         leading: Stack(
           clipBehavior: Clip.none,
           children: [
-            UserAvatar(uid: from, radius: 22),
+            if (isSystem)
+              CircleAvatar(
+                radius: 22,
+                backgroundColor: style.color.withValues(alpha: 0.15),
+                child: Icon(Icons.shield, color: style.color),
+              )
+            else
+              UserAvatar(uid: from, radius: 22),
             Positioned(
               right: -4,
               bottom: -4,
@@ -351,16 +400,21 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             ),
           ],
         ),
-        title: Wrap(
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            AuthorName(
-              uid: from,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-            Text(' ${_action(type)}'),
-          ],
-        ),
+        title: isSystem
+            ? Text(
+                _action(type),
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              )
+            : Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  AuthorName(
+                    uid: from,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  Text(' ${_action(type)}'),
+                ],
+              ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -368,7 +422,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             if (text != null && text.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 2),
-                child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis),
+                child: Text(
+                  text,
+                  maxLines: isSystem ? 4 : 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
             Padding(
               padding: const EdgeInsets.only(top: 2),

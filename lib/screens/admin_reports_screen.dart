@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../models/community_model.dart';
 import '../models/event_model.dart';
 import '../services/auth_service.dart';
+import '../services/moderation_service.dart';
 import '../utils/time_ago.dart';
 import 'community_detail_screen.dart';
 import 'event_detail_screen.dart';
@@ -27,6 +28,7 @@ const _statusColors = {
 
 const _typeLabels = {
   'post': 'โพสต์',
+  'community_post': 'โพสต์ในชุมชน',
   'profile': 'โปรไฟล์',
   'comment': 'ความคิดเห็น',
   'message': 'ข้อความแชท',
@@ -55,6 +57,48 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
       .limit(300)
       .snapshots();
   String _filter = 'open'; // หรือ 'all'
+  final _moderation = ModerationService();
+  // จำนวนผู้รายงานต่อโพสต์ (คำนวณใหม่ทุกครั้งที่ stream อัปเดต) key = ชนิด:รหัสโพสต์
+  Map<String, int> _perTarget = {};
+
+  String _targetKey(Map<String, dynamic> d) =>
+      '${d['targetType']}:${d['contextId'] ?? ''}:${d['targetId']}';
+
+  /// ซ่อนโพสต์: เลือกจำนวนวัน (หรือจนกว่าเจ้าของจะแก้ไข) + เหตุผลที่จะแจ้งเจ้าของโพสต์
+  Future<void> _hidePost(Map<String, dynamic> d) async {
+    final input = await showDialog<({int days, String note})>(
+      context: context,
+      builder: (_) => const _HideDialog(),
+    );
+    if (input == null) return;
+    try {
+      await _moderation.hidePost(
+        postId: d['targetId'] as String,
+        communityId: d['targetType'] == 'community_post'
+            ? d['contextId'] as String?
+            : null,
+        days: input.days,
+        note: input.note,
+      );
+      _toast('ซ่อนโพสต์แล้ว และแจ้งเจ้าของโพสต์แล้ว');
+    } catch (e) {
+      _toast('ซ่อนโพสต์ไม่สำเร็จ: $e');
+    }
+  }
+
+  Future<void> _unhidePost(Map<String, dynamic> d) async {
+    try {
+      await _moderation.unhidePost(
+        postId: d['targetId'] as String,
+        communityId: d['targetType'] == 'community_post'
+            ? d['contextId'] as String?
+            : null,
+      );
+      _toast('เลิกซ่อนโพสต์แล้ว และแจ้งเจ้าของโพสต์แล้ว');
+    } catch (e) {
+      _toast('เลิกซ่อนไม่สำเร็จ: $e');
+    }
+  }
 
   String _status(Map<String, dynamic> d) => (d['status'] as String?) ?? 'open';
 
@@ -137,6 +181,14 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
           final u = r.data()['reportedUid'] as String? ?? '';
           if (u.isNotEmpty) perUser[u] = (perUser[u] ?? 0) + 1;
         }
+        final perTarget = <String, Set<String>>{};
+        for (final r in all) {
+          final x = r.data();
+          if (_status(x) == 'open' || _status(x) == 'reviewing') {
+            (perTarget[_targetKey(x)] ??= {}).add(x['reporterId'] as String? ?? '');
+          }
+        }
+        _perTarget = {for (final e in perTarget.entries) e.key: e.value.length};
         final counts = <String, int>{};
         for (final r in all) {
           counts[_status(r.data())] = (counts[_status(r.data())] ?? 0) + 1;
@@ -277,6 +329,36 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
                 style: const TextStyle(fontSize: 12, color: Colors.black54),
               ),
             ),
+            if (type == 'post' || type == 'community_post') ...[
+              if ((_perTarget[_targetKey(d)] ?? 0) > 0)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    'โพสต์นี้ถูกรายงานโดย ${_perTarget[_targetKey(d)]} คน (ซ่อนอัตโนมัติเมื่อถึง 3 คน)',
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFFE53935),
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 8,
+                children: [
+                  FilledButton.tonalIcon(
+                    onPressed: () => _hidePost(d),
+                    icon: const Icon(Icons.visibility_off, size: 18),
+                    label: const Text('ซ่อนโพสต์'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () => _unhidePost(d),
+                    icon: const Icon(Icons.visibility, size: 18),
+                    label: const Text('เลิกซ่อน'),
+                  ),
+                ],
+              ),
+            ],
             const SizedBox(height: 4),
             Row(
               children: [
@@ -334,6 +416,86 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
           tappable: true,
           style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
         ),
+      ),
+    ],
+  );
+}
+
+
+/// ตัวเลือกการซ่อนโพสต์: กี่วัน + เหตุผล (เหตุผลจะแสดงให้เจ้าของโพสต์เห็นในแจ้งเตือน)
+class _HideDialog extends StatefulWidget {
+  const _HideDialog();
+
+  @override
+  State<_HideDialog> createState() => _HideDialogState();
+}
+
+class _HideDialogState extends State<_HideDialog> {
+  static const _options = <(int, String)>[
+    (1, '1 วัน'),
+    (3, '3 วัน'),
+    (7, '7 วัน'),
+    (14, '14 วัน'),
+    (30, '30 วัน'),
+    (0, 'จนกว่าเจ้าของจะแก้ไข'),
+  ];
+  int _days = 7;
+  final _note = TextEditingController();
+
+  @override
+  void dispose() {
+    _note.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('ซ่อนโพสต์'),
+    content: SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('ซ่อนนานแค่ไหน'),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            children: [
+              for (final o in _options)
+                ChoiceChip(
+                  label: Text(o.$2),
+                  selected: _days == o.$1,
+                  onSelected: (_) => setState(() => _days = o.$1),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'ถ้าเจ้าของแก้ไขเนื้อหาจริงระหว่างที่ซ่อน ระบบจะตรวจและแสดงโพสต์อีกครั้งก่อนครบกำหนด',
+            style: TextStyle(fontSize: 12.5, color: Colors.black54),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _note,
+            maxLength: 200,
+            maxLines: 2,
+            decoration: const InputDecoration(
+              labelText: 'เหตุผล (แจ้งให้เจ้าของโพสต์ทราบ)',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ],
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('ยกเลิก'),
+      ),
+      FilledButton(
+        onPressed: () =>
+            Navigator.pop(context, (days: _days, note: _note.text.trim())),
+        child: const Text('ซ่อนโพสต์'),
       ),
     ],
   );

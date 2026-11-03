@@ -1,4 +1,5 @@
 import '../widgets/profile_link.dart';
+import '../widgets/moderation_banner.dart';
 import '../widgets/privacy_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -41,8 +42,9 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
   // ถูกถอดตอน sheet ยังเปิดอยู่
   late Stream<List<Post>> _feed = _newFeed();
 
-  Stream<List<Post>> _newFeed() =>
-      _postService.feedStream(viewerId: _authService.currentUser?.uid ?? '');
+  Stream<List<Post>> _newFeed() => _postService.feedStream(
+    viewerId: _authService.currentUser?.uid ?? '',
+  );
 
   @override
   void initState() {
@@ -1014,6 +1016,15 @@ class _PostCardState extends State<PostCard> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // โพสต์ที่ถูกซ่อน เจ้าของยังเห็น + แจ้งสาเหตุ/ปุ่มแก้ไข (คนอื่นไม่เห็นโพสต์นี้เลย)
+                if (post.isHiddenNow && _isOwner)
+                  HiddenPostBanner(
+                    hiddenBy: post.hiddenBy,
+                    reason: post.hiddenReason,
+                    until: post.hiddenUntil,
+                    editRejected: post.editRejected,
+                    onEdit: _editPost,
+                  ),
                 Row(
                   children: [
                     GestureDetector(

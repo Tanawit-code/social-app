@@ -17,6 +17,12 @@ class NotifType {
   static const pageJoinRequest = 'page_join_request';
   static const pageJoinApproved = 'page_join_approved';
   static const pageJoinDeclined = 'page_join_declined';
+
+  // ระบบดูแลโพสต์ (ส่งจาก Cloud Functions — fromUid = 'system')
+  static const adminReport = 'admin_report'; // แอดมิน: มีรายงานใหม่
+  static const postHidden = 'post_hidden'; // เจ้าของโพสต์: โพสต์ถูกซ่อน
+  static const postRestored = 'post_restored'; // เจ้าของโพสต์: กลับมาแสดงแล้ว
+  static const postEditRejected = 'post_edit_rejected'; // แก้ไขแล้วแต่ยังไม่พอ
 }
 
 /// "มาจากระบบไหน" ของแจ้งเตือน — เก็บในฟิลด์ source
@@ -27,6 +33,7 @@ class NotifSource {
   static const chat = 'chat';
   static const community = 'community';
   static const page = 'page';
+  static const moderation = 'moderation';
 
   /// เดา source จาก type (ใช้กับแจ้งเตือนเก่าที่ยังไม่มีฟิลด์ source)
   static String fromType(String type) {
@@ -52,6 +59,11 @@ class NotifSource {
       case NotifType.pageJoinApproved:
       case NotifType.pageJoinDeclined:
         return page;
+      case NotifType.adminReport:
+      case NotifType.postHidden:
+      case NotifType.postRestored:
+      case NotifType.postEditRejected:
+        return moderation;
       default:
         return post;
     }
