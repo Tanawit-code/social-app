@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../utils/validators.dart';
 import 'push_notification_service.dart';
 
 class AuthService {
@@ -10,9 +11,15 @@ class AuthService {
   User? get currentUser => _auth.currentUser;
   Stream<User?> get authStateChanges => _auth.authStateChanges();
 
+  /// ลืมรหัสผ่าน: ตรวจรูปแบบอีเมลก่อน แล้วให้ Firebase ตรวจว่ามีบัญชีจริงหรือไม่
+  /// (ต้องปิด "Email enumeration protection" ใน Firebase Console > Authentication >
+  /// Settings > User actions ไม่งั้น Firebase จะตอบสำเร็จเสมอแม้ไม่มีอีเมลนี้)
+  /// ถ้าไม่มีบัญชี Firebase คืน user-not-found และจะไม่ส่งอีเมลใดๆ
   Future<String?> sendPasswordReset(String email) async {
+    final trimmed = email.trim();
+    if (!isValidEmail(trimmed)) return 'รูปแบบอีเมลไม่ถูกต้อง';
     try {
-      await _auth.sendPasswordResetEmail(email: email.trim());
+      await _auth.sendPasswordResetEmail(email: trimmed);
       return null;
     } on FirebaseAuthException catch (e) {
       return _mapAuthError(e.code);
@@ -36,9 +43,42 @@ class AuthService {
 
   Future<void> reloadUser() async => _auth.currentUser?.reload();
 
-  Future<String?> changePassword(String password) async {
+  /// ยืนยันตัวตนซ้ำด้วยรหัสผ่านปัจจุบัน (จำเป็นก่อนเปลี่ยนรหัสผ่าน/อีเมล)
+  /// คืน error message ถ้าไม่ผ่าน หรือ null ถ้าผ่าน
+  Future<String?> _reauthenticate(User user, String currentPassword) async {
+    final email = user.email;
+    if (email == null) return 'บัญชีนี้ไม่รองรับการยืนยันด้วยรหัสผ่าน';
     try {
-      await _auth.currentUser?.updatePassword(password);
+      await user.reauthenticateWithCredential(
+        EmailAuthProvider.credential(email: email, password: currentPassword),
+      );
+      return null;
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'wrong-password' || e.code == 'invalid-credential') {
+        return 'รหัสผ่านปัจจุบันไม่ถูกต้อง';
+      }
+      return _mapAuthError(e.code);
+    }
+  }
+
+  /// เปลี่ยนรหัสผ่าน: ตรวจเงื่อนไขรหัสผ่านใหม่ (>= 8, มีตัวเลข, มีอักขระพิเศษ)
+  /// และต้องยืนยันรหัสผ่านปัจจุบันก่อนเสมอ
+  Future<String?> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null) return 'กรุณาเข้าสู่ระบบอีกครั้ง';
+      final invalid = validateChangePasswordForm(
+        current: currentPassword,
+        next: newPassword,
+        confirm: newPassword,
+      );
+      if (invalid != null) return invalid;
+      final reauthError = await _reauthenticate(user, currentPassword);
+      if (reauthError != null) return reauthError;
+      await user.updatePassword(newPassword);
       return null;
     } on FirebaseAuthException catch (e) {
       return _mapAuthError(e.code);
@@ -47,17 +87,32 @@ class AuthService {
     }
   }
 
-  Future<String?> changeEmail(String email) async {
+  /// เปลี่ยนอีเมล: ตรวจรูปแบบ/ไม่ซ้ำอีเมลเดิม, ยืนยันรหัสผ่านปัจจุบัน แล้วส่งลิงก์ยืนยัน
+  /// ไปที่อีเมลใหม่ (อีเมลจะเปลี่ยนจริงเมื่อผู้ใช้กดลิงก์ยืนยัน)
+  /// ถ้าอีเมลใหม่มีคนใช้แล้ว Firebase จะตอบ email-already-in-use
+  Future<String?> changeEmail({
+    required String newEmail,
+    required String currentPassword,
+  }) async {
     try {
       final user = _auth.currentUser;
       if (user == null) return 'กรุณาเข้าสู่ระบบอีกครั้ง';
-      await user.verifyBeforeUpdateEmail(email.trim());
+      final invalid = validateChangeEmailForm(
+        currentEmail: user.email ?? '',
+        newEmail: newEmail,
+        password: currentPassword,
+      );
+      if (invalid != null) return invalid;
+      final reauthError = await _reauthenticate(user, currentPassword);
+      if (reauthError != null) return reauthError;
+      final trimmed = newEmail.trim();
+      await user.verifyBeforeUpdateEmail(trimmed);
       await _db
           .collection('users')
           .doc(user.uid)
           .collection('private')
           .doc('account')
-          .update({'pendingEmail': email.trim()});
+          .set({'pendingEmail': trimmed}, SetOptions(merge: true));
       return null;
     } on FirebaseAuthException catch (e) {
       return _mapAuthError(e.code);
@@ -237,12 +292,14 @@ class AuthService {
       case 'invalid-email':
         return 'รูปแบบอีเมลไม่ถูกต้อง';
       case 'weak-password':
-        return 'รหัสผ่านสั้นเกินไป (อย่างน้อย 6 ตัวอักษร)';
+        return 'รหัสผ่านไม่ปลอดภัยพอ (อย่างน้อย 8 ตัว มีตัวเลขและอักขระพิเศษ)';
       case 'user-not-found':
         return 'ยังไม่มีบัญชีนี้ในระบบ กรุณาสมัครสมาชิกก่อน';
       case 'wrong-password':
       case 'invalid-credential':
         return 'อีเมลหรือรหัสผ่านไม่ถูกต้อง';
+      case 'user-disabled':
+        return 'บัญชีนี้ถูกระงับการใช้งาน';
       case 'too-many-requests':
         return 'ลองผิดหลายครั้งเกินไป กรุณารอสักครู่แล้วลองใหม่';
       case 'network-request-failed':

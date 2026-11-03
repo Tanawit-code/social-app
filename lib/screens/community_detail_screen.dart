@@ -1,3 +1,4 @@
+import 'dart:async';
 import '../widgets/profile_link.dart';
 import '../widgets/privacy_icon.dart';
 import 'package:share_plus/share_plus.dart';
@@ -34,9 +35,27 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
   Uint8List? _videoBytes;
   String? _videoName;
   bool _busy = false;
+  bool _banned = false; // ผู้ใช้นี้ถูกแบนจากชุมชนนี้หรือไม่
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _bannedSub;
+
+  @override
+  void initState() {
+    super.initState();
+    // ถ้า rules ยังไม่ได้ deploy (อ่านเอกสารแบนไม่ได้) จะถือว่าไม่ถูกแบนและไม่ crash
+    _bannedSub = FirebaseFirestore.instance
+        .collection('communities')
+        .doc(widget.community.id)
+        .collection('banned')
+        .doc(_uid)
+        .snapshots()
+        .listen((snap) {
+          if (mounted) setState(() => _banned = snap.exists);
+        }, onError: (_) {});
+  }
 
   @override
   void dispose() {
+    _bannedSub?.cancel();
     _text.dispose();
     super.dispose();
   }
@@ -394,7 +413,34 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
                   ],
                 ),
               ),
-              if (!isMember)
+              if (_banned)
+                Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.errorContainer,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.block,
+                        color: Theme.of(context).colorScheme.onErrorContainer,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'คุณถูกแบนจากชุมชนนี้ จึงไม่สามารถเข้าร่วม ดู หรือโพสต์ได้',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.onErrorContainer,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              if (!isMember && !_banned)
                 StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
                   stream: requestRef.snapshots(),
                   builder: (context, requestSnap) {
@@ -544,7 +590,9 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
                   ),
                 ),
               Expanded(
-                child: !isMember && widget.community.privacy == 'private'
+                child: _banned
+                    ? const SizedBox.shrink()
+                    : !isMember && widget.community.privacy == 'private'
                     ? const Center(
                         child: Text(
                           'โพสต์จะแสดงหลังจากได้รับอนุมัติเข้าร่วมชุมชน',
@@ -557,12 +605,22 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
                             .limit(60)
                             .snapshots(),
                         builder: (context, snap) {
-                          if (snap.hasError)
+                          if (snap.hasError) {
+                            final denied = '${snap.error}'.contains(
+                              'permission-denied',
+                            );
                             return Center(
-                              child: Text(
-                                'โหลดโพสต์ชุมชนไม่สำเร็จ: ${snap.error}',
+                              child: Padding(
+                                padding: const EdgeInsets.all(24),
+                                child: Text(
+                                  denied
+                                      ? 'คุณไม่มีสิทธิ์ดูโพสต์ของชุมชนนี้'
+                                      : 'โหลดโพสต์ชุมชนไม่สำเร็จ: ${snap.error}',
+                                  textAlign: TextAlign.center,
+                                ),
                               ),
                             );
+                          }
                           if (!snap.hasData)
                             return const Center(
                               child: CircularProgressIndicator(),

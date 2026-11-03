@@ -125,4 +125,86 @@ void main() {
       },
     );
   });
+
+  // ---------------------------------------------------------------
+  group('validateChangePasswordForm', () {
+    test('ช่องใดช่องหนึ่งว่าง -> กรุณากรอกข้อมูลให้ครบ', () {
+      expect(
+        validateChangePasswordForm(current: '', next: 'abcdef1!', confirm: 'abcdef1!'),
+        'กรุณากรอกข้อมูลให้ครบ',
+      );
+    });
+
+    test('รหัสผ่านใหม่สั้นกว่า 8 ตัว -> error ความยาว', () {
+      expect(
+        validateChangePasswordForm(current: 'old', next: 'abc1!', confirm: 'abc1!'),
+        'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร',
+      );
+    });
+
+    test('ไม่มีตัวเลข -> error ตัวเลข', () {
+      expect(
+        validateChangePasswordForm(current: 'old', next: 'abcdefg!', confirm: 'abcdefg!'),
+        'รหัสผ่านต้องมีตัวเลขอย่างน้อย 1 ตัว',
+      );
+    });
+
+    test('ไม่มีอักขระพิเศษ -> error อักขระพิเศษ', () {
+      expect(
+        validateChangePasswordForm(current: 'old', next: 'abcdefg1', confirm: 'abcdefg1'),
+        startsWith('รหัสผ่านต้องมีอักขระพิเศษ'),
+      );
+    });
+
+    test('ซ้ำรหัสผ่านเดิม -> error', () {
+      expect(
+        validateChangePasswordForm(current: 'abcdef1!', next: 'abcdef1!', confirm: 'abcdef1!'),
+        'รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านเดิม',
+      );
+    });
+
+    test('ยืนยันไม่ตรง -> error', () {
+      expect(
+        validateChangePasswordForm(current: 'old', next: 'abcdef1!', confirm: 'abcdef1?'),
+        'รหัสผ่านไม่ตรงกัน',
+      );
+    });
+
+    test('ผ่านทุกเงื่อนไข -> null', () {
+      expect(
+        validateChangePasswordForm(current: 'old', next: 'abcdef1!', confirm: 'abcdef1!'),
+        isNull,
+      );
+    });
+  });
+
+  group('validateChangeEmailForm', () {
+    test('รูปแบบอีเมลผิด -> error', () {
+      expect(
+        validateChangeEmailForm(currentEmail: 'a@b.com', newEmail: 'abc', password: 'x'),
+        'รูปแบบอีเมลไม่ถูกต้อง',
+      );
+    });
+
+    test('ซ้ำอีเมลเดิม (ไม่สนตัวพิมพ์) -> error', () {
+      expect(
+        validateChangeEmailForm(currentEmail: 'A@b.com', newEmail: 'a@B.com', password: 'x'),
+        'อีเมลใหม่ต้องไม่ซ้ำกับอีเมลปัจจุบัน',
+      );
+    });
+
+    test('ไม่กรอกรหัสผ่านยืนยัน -> error', () {
+      expect(
+        validateChangeEmailForm(currentEmail: 'a@b.com', newEmail: 'c@d.com', password: ''),
+        'กรุณากรอกข้อมูลให้ครบ',
+      );
+    });
+
+    test('ผ่านทุกเงื่อนไข -> null', () {
+      expect(
+        validateChangeEmailForm(currentEmail: 'a@b.com', newEmail: 'c@d.com', password: 'x'),
+        isNull,
+      );
+    });
+  });
 }

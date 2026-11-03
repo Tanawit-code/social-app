@@ -5,6 +5,8 @@ const { getMessaging } = require('firebase-admin/messaging');
 
 initializeApp();
 
+exports.checkEmailForReset = require('./password_reset').checkEmailForReset;
+
 // ข้อความ push ตามชนิดแจ้งเตือน — ให้ตรงกับหน้าแจ้งเตือนในแอป (lib/screens/notifications_screen.dart)
 const SOURCE_LABEL = {
   post: 'โพสต์',

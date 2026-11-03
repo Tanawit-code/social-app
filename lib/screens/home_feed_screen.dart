@@ -347,10 +347,14 @@ class PostCard extends StatefulWidget {
   final String currentUid;
   final PostService postService;
 
+  /// เจ้าของ/ผู้ดูแลเพจที่โพสต์นี้อยู่ — ลบโพสต์ของคนอื่นในเพจได้
+  final bool canModerate;
+
   const PostCard({
     required this.post,
     required this.currentUid,
     required this.postService,
+    this.canModerate = false,
     super.key,
   });
 
@@ -705,6 +709,24 @@ class _PostCardState extends State<PostCard> {
                               if (v == 'delete') _confirmDelete();
                             },
                             itemBuilder: (_) => [
+                              if (!_isOwner && widget.canModerate)
+                                const PopupMenuItem(
+                                  value: 'delete',
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.delete_outline,
+                                        color: Colors.red,
+                                        size: 18,
+                                      ),
+                                      SizedBox(width: 8),
+                                      Text(
+                                        'ลบโพสต์ (ผู้ดูแล)',
+                                        style: TextStyle(color: Colors.red),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               if (_isOwner)
                                 const PopupMenuItem(
                                   value: 'delete',

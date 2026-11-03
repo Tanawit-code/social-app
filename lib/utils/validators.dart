@@ -18,6 +18,38 @@ String? validatePassword(String password) {
   return null;
 }
 
+/// ตรวจฟอร์มเปลี่ยนรหัสผ่าน คืน error ข้อแรกที่เจอ หรือ null ถ้าผ่านหมด
+String? validateChangePasswordForm({
+  required String current,
+  required String next,
+  required String confirm,
+}) {
+  if (current.isEmpty || next.isEmpty || confirm.isEmpty) {
+    return 'กรุณากรอกข้อมูลให้ครบ';
+  }
+  final pw = validatePassword(next);
+  if (pw != null) return pw;
+  if (next == current) return 'รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านเดิม';
+  if (next != confirm) return 'รหัสผ่านไม่ตรงกัน';
+  return null;
+}
+
+/// ตรวจฟอร์มเปลี่ยนอีเมล คืน error ข้อแรกที่เจอ หรือ null ถ้าผ่านหมด
+String? validateChangeEmailForm({
+  required String currentEmail,
+  required String newEmail,
+  required String password,
+}) {
+  if (newEmail.trim().isEmpty || password.isEmpty) {
+    return 'กรุณากรอกข้อมูลให้ครบ';
+  }
+  if (!isValidEmail(newEmail)) return 'รูปแบบอีเมลไม่ถูกต้อง';
+  if (newEmail.trim().toLowerCase() == currentEmail.trim().toLowerCase()) {
+    return 'อีเมลใหม่ต้องไม่ซ้ำกับอีเมลปัจจุบัน';
+  }
+  return null;
+}
+
 /// ตรวจฟอร์มสมัครสมาชิกทั้งฟอร์ม คืน error ข้อแรกที่เจอ หรือ null ถ้าผ่านหมด
 String? validateRegisterForm({
   required String name,

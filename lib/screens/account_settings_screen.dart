@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/push_notification_service.dart';
 import '../services/safety_service.dart';
+import '../utils/validators.dart';
 import 'admin_reports_screen.dart';
 
 class AccountSettingsScreen extends StatefulWidget {
@@ -16,19 +17,10 @@ class AccountSettingsScreen extends StatefulWidget {
 class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
   final _auth = AuthService();
   final _db = FirebaseFirestore.instance;
-  final _email = TextEditingController();
-  final _password = TextEditingController();
   bool _busy = false;
   late final Future<bool> _isAdmin = SafetyService.isAdmin();
 
   String get _uid => _auth.currentUser?.uid ?? '';
-
-  @override
-  void dispose() {
-    _email.dispose();
-    _password.dispose();
-    super.dispose();
-  }
 
   void _message(String value) {
     if (!mounted) return;
@@ -63,66 +55,34 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
   }
 
   Future<void> _editEmail() async {
-    _email.text = _auth.currentUser?.email ?? '';
-    final value = await showDialog<String>(
+    final result = await showDialog<({String email, String password})>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('เปลี่ยนอีเมล'),
-        content: TextField(
-          controller: _email,
-          keyboardType: TextInputType.emailAddress,
-          decoration: const InputDecoration(labelText: 'อีเมลใหม่'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('ยกเลิก'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, _email.text.trim()),
-            child: const Text('ส่งลิงก์ยืนยัน'),
-          ),
-        ],
-      ),
+      builder: (_) =>
+          _ChangeEmailDialog(currentEmail: _auth.currentUser?.email ?? ''),
     );
-    if (value == null || value.isEmpty) return;
+    if (result == null || !mounted) return;
     await _run(
-      () => _auth.changeEmail(value),
-      'ส่งลิงก์ยืนยันไปยังอีเมลใหม่แล้ว',
+      () => _auth.changeEmail(
+        newEmail: result.email,
+        currentPassword: result.password,
+      ),
+      'ส่งลิงก์ยืนยันไปยังอีเมลใหม่แล้ว อีเมลจะเปลี่ยนเมื่อคุณกดลิงก์ยืนยัน',
     );
   }
 
   Future<void> _editPassword() async {
-    _password.clear();
-    final value = await showDialog<String>(
+    final result = await showDialog<({String current, String next})>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('เปลี่ยนรหัสผ่าน'),
-        content: TextField(
-          controller: _password,
-          obscureText: true,
-          decoration: const InputDecoration(
-            labelText: 'รหัสผ่านใหม่ (อย่างน้อย 6 ตัว)',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('ยกเลิก'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, _password.text),
-            child: const Text('เปลี่ยนรหัสผ่าน'),
-          ),
-        ],
-      ),
+      builder: (_) => const _ChangePasswordDialog(),
     );
-    if (value == null || value.isEmpty) return;
-    if (value.length < 6) {
-      _message('รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร');
-      return;
-    }
-    await _run(() => _auth.changePassword(value), 'เปลี่ยนรหัสผ่านแล้ว');
+    if (result == null || !mounted) return;
+    await _run(
+      () => _auth.changePassword(
+        currentPassword: result.current,
+        newPassword: result.next,
+      ),
+      'เปลี่ยนรหัสผ่านแล้ว',
+    );
   }
 
   Future<void> _setPreference(String key, bool value) async {
@@ -283,6 +243,181 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                 );
               },
             ),
+    );
+  }
+}
+
+/// Dialog เปลี่ยนอีเมล — เป็น StatefulWidget แยก เพื่อให้ State เป็นคน dispose
+/// controller เองตอน dialog ถูกถอดออกจริง (ไม่ dispose ระหว่างแอนิเมชันปิด)
+class _ChangeEmailDialog extends StatefulWidget {
+  const _ChangeEmailDialog({required this.currentEmail});
+
+  final String currentEmail;
+
+  @override
+  State<_ChangeEmailDialog> createState() => _ChangeEmailDialogState();
+}
+
+class _ChangeEmailDialogState extends State<_ChangeEmailDialog> {
+  final _email = TextEditingController();
+  final _password = TextEditingController();
+  String? _error;
+  bool _obscure = true;
+
+  @override
+  void dispose() {
+    _email.dispose();
+    _password.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final invalid = validateChangeEmailForm(
+      currentEmail: widget.currentEmail,
+      newEmail: _email.text,
+      password: _password.text,
+    );
+    if (invalid != null) {
+      setState(() => _error = invalid);
+      return;
+    }
+    Navigator.pop(context, (email: _email.text.trim(), password: _password.text));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('เปลี่ยนอีเมล'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _email,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(labelText: 'อีเมลใหม่'),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _password,
+              obscureText: _obscure,
+              decoration: InputDecoration(
+                labelText: 'รหัสผ่านปัจจุบัน (ยืนยันตัวตน)',
+                suffixIcon: IconButton(
+                  icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
+                  onPressed: () => setState(() => _obscure = !_obscure),
+                ),
+              ),
+            ),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Text(
+                  _error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('ยกเลิก'),
+        ),
+        FilledButton(onPressed: _submit, child: const Text('ส่งลิงก์ยืนยัน')),
+      ],
+    );
+  }
+}
+
+/// Dialog เปลี่ยนรหัสผ่าน — รหัสใหม่ต้องมีอย่างน้อย 8 ตัว มีตัวเลขและอักขระพิเศษ
+class _ChangePasswordDialog extends StatefulWidget {
+  const _ChangePasswordDialog();
+
+  @override
+  State<_ChangePasswordDialog> createState() => _ChangePasswordDialogState();
+}
+
+class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
+  final _current = TextEditingController();
+  final _next = TextEditingController();
+  final _confirm = TextEditingController();
+  String? _error;
+  bool _obscure = true;
+
+  @override
+  void dispose() {
+    _current.dispose();
+    _next.dispose();
+    _confirm.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final invalid = validateChangePasswordForm(
+      current: _current.text,
+      next: _next.text,
+      confirm: _confirm.text,
+    );
+    if (invalid != null) {
+      setState(() => _error = invalid);
+      return;
+    }
+    Navigator.pop(context, (current: _current.text, next: _next.text));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('เปลี่ยนรหัสผ่าน'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _current,
+              obscureText: _obscure,
+              decoration: const InputDecoration(labelText: 'รหัสผ่านปัจจุบัน'),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _next,
+              obscureText: _obscure,
+              decoration: InputDecoration(
+                labelText: 'รหัสผ่านใหม่',
+                helperText: 'อย่างน้อย 8 ตัวอักษร มีตัวเลขและอักขระพิเศษ',
+                helperMaxLines: 2,
+                suffixIcon: IconButton(
+                  icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
+                  onPressed: () => setState(() => _obscure = !_obscure),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _confirm,
+              obscureText: _obscure,
+              decoration: const InputDecoration(labelText: 'ยืนยันรหัสผ่านใหม่'),
+            ),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Text(
+                  _error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('ยกเลิก'),
+        ),
+        FilledButton(onPressed: _submit, child: const Text('เปลี่ยนรหัสผ่าน')),
+      ],
     );
   }
 }

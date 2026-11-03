@@ -11,6 +11,7 @@ import '../utils/image_data.dart';
 import 'home_feed_screen.dart' show AuthorName, PostCard;
 import 'create_post_screen.dart';
 import 'members_list_screen.dart';
+import 'page_moderation_screen.dart';
 import '../widgets/join_requests_section.dart';
 
 class PageDetailScreen extends StatefulWidget {
@@ -120,14 +121,30 @@ class _PageDetailScreenState extends State<PageDetailScreen> {
       final ownerId = (data['ownerId'] ?? '') as String;
       final members = List<String>.from(data['memberIds'] ?? const []);
       final requests = List<String>.from(data['pendingRequests'] ?? const []);
+      final moderators = List<String>.from(data['moderatorIds'] ?? const []);
+      final banned = List<String>.from(data['bannedIds'] ?? const []);
       final isOwner = ownerId == _uid;
       final isMember = members.contains(_uid);
-      final canViewPosts = !isPrivate || isMember;
+      final isBanned = banned.contains(_uid);
+      final canModerate = isOwner || moderators.contains(_uid);
+      final canViewPosts = !isBanned && (!isPrivate || isMember);
 
       return Scaffold(
         appBar: AppBar(
           title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
           actions: [
+            if (canModerate)
+              IconButton(
+                tooltip: 'เครื่องมือผู้ดูแล',
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        PageModerationScreen(pageId: widget.pageId),
+                  ),
+                ),
+                icon: const Icon(Icons.shield_outlined),
+              ),
             if (isOwner)
               IconButton(
                 tooltip: 'เปลี่ยนรูปเพจ',
@@ -217,6 +234,11 @@ class _PageDetailScreenState extends State<PageDetailScreen> {
                                                     u,
                                                     u == ownerId
                                                         ? 'owner'
+                                                        : List<String>.from(
+                                                                s.data()?['moderatorIds'] ??
+                                                                    const [],
+                                                              ).contains(u)
+                                                        ? 'moderator'
                                                         : 'member',
                                                   ),
                                                 )
@@ -229,9 +251,11 @@ class _PageDetailScreenState extends State<PageDetailScreen> {
                             label: Text('${members.length} สมาชิก'),
                           )
                         else
-                          const Text(
-                            'เข้าร่วมเพื่อดูสมาชิก',
-                            style: TextStyle(color: Colors.black54),
+                          Text(
+                            isBanned
+                                ? 'คุณถูกแบนจากเพจนี้'
+                                : 'เข้าร่วมเพื่อดูสมาชิก',
+                            style: const TextStyle(color: Colors.black54),
                           ),
                       ],
                     ),
@@ -239,7 +263,39 @@ class _PageDetailScreenState extends State<PageDetailScreen> {
                       const SizedBox(height: 10),
                       Text(description),
                     ],
-                    if (!isMember && !isPrivate) ...[
+                    if (isBanned) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.errorContainer,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.block,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onErrorContainer,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'คุณถูกแบนจากเพจนี้ จึงไม่สามารถเข้าร่วม ดู หรือโพสต์ได้',
+                                style: TextStyle(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onErrorContainer,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    if (!isMember && !isBanned && !isPrivate) ...[
                       const SizedBox(height: 12),
                       OutlinedButton.icon(
                         onPressed: _busy ? null : () => _join(isPrivate: false),
@@ -247,7 +303,7 @@ class _PageDetailScreenState extends State<PageDetailScreen> {
                         label: const Text('เข้าร่วมเพจเพื่อโพสต์'),
                       ),
                     ],
-                    if (!isMember && isPrivate) ...[
+                    if (!isMember && !isBanned && isPrivate) ...[
                       const SizedBox(height: 12),
                       requests.contains(_uid)
                           ? OutlinedButton.icon(
@@ -269,7 +325,7 @@ class _PageDetailScreenState extends State<PageDetailScreen> {
                 ),
               ),
             ),
-            if (isOwner) ...[
+            if (canModerate) ...[
               const SizedBox(height: 8),
               JoinRequestsSection(
                 title: 'คำขอเข้าร่วมเพจ',
@@ -282,11 +338,13 @@ class _PageDetailScreenState extends State<PageDetailScreen> {
               ),
             ],
             if (!canViewPosts)
-              const Card(
+              Card(
                 child: Padding(
-                  padding: EdgeInsets.all(18),
+                  padding: const EdgeInsets.all(18),
                   child: Text(
-                    'โพสต์ของเพจส่วนตัวจะแสดงหลังเจ้าของอนุมัติคำขอเข้าร่วม',
+                    isBanned
+                        ? 'คุณไม่มีสิทธิ์ดูโพสต์ของเพจนี้'
+                        : 'โพสต์ของเพจส่วนตัวจะแสดงหลังเจ้าของอนุมัติคำขอเข้าร่วม',
                   ),
                 ),
               ),
@@ -332,6 +390,7 @@ class _PageDetailScreenState extends State<PageDetailScreen> {
                           post: post,
                           currentUid: _uid,
                           postService: postService,
+                          canModerate: canModerate,
                         ),
                       );
                     }).toList(),

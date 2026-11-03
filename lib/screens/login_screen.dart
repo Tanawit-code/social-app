@@ -14,6 +14,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
   bool _loading = false;
+  DateTime? _resetCooldownUntil;
 
   static final _emailRegex = RegExp(r'^[\w.+-]+@[\w-]+\.[\w.-]+$');
 
@@ -70,11 +71,22 @@ class _LoginScreenState extends State<LoginScreen> {
       _showMessage('กรอกอีเมลที่ถูกต้องก่อนขอลิงก์ตั้งรหัสผ่านใหม่');
       return;
     }
+    final until = _resetCooldownUntil;
+    if (until != null && DateTime.now().isBefore(until)) {
+      final left = until.difference(DateTime.now()).inSeconds + 1;
+      _showMessage('ขอลิงก์ได้อีกครั้งในอีก $left วินาที');
+      return;
+    }
     setState(() => _loading = true);
     final error = await _authService.sendPasswordReset(email);
     if (!mounted) return;
     setState(() => _loading = false);
-    _showMessage(error ?? 'ส่งลิงก์ตั้งรหัสผ่านใหม่แล้ว โปรดตรวจกล่องอีเมล');
+    if (error == null) {
+      _resetCooldownUntil = DateTime.now().add(const Duration(seconds: 60));
+    }
+    _showMessage(
+      error ?? 'ส่งลิงก์ตั้งรหัสผ่านใหม่แล้ว โปรดตรวจกล่องอีเมล (รวมถึงอีเมลขยะ)',
+    );
   }
 
   @override

@@ -39,8 +39,15 @@ service cloud.firestore {
     }
     function canViewPagePosts(pageId) {
       let page = get(/databases/$(database)/documents/pages/$(pageId)).data;
-      return page.get('privacy', 'public') == 'public'
-        || page.get('memberIds', []).hasAny([request.auth.uid]);
+      return !page.get('bannedIds', []).hasAny([request.auth.uid])
+        && (page.get('privacy', 'public') == 'public'
+          || page.get('memberIds', []).hasAny([request.auth.uid]));
+    }
+    // เจ้าของเพจหรือผู้ดูแล (moderatorIds)
+    function pageModerator(pageId) {
+      let page = get(/databases/$(database)/documents/pages/$(pageId)).data;
+      return signedIn() && (page.ownerId == request.auth.uid
+        || page.get('moderatorIds', []).hasAny([request.auth.uid]));
     }
     function canViewPostBase(post) {
       return signedIn() && (post.authorId == request.auth.uid
@@ -296,7 +303,8 @@ service cloud.firestore {
         && (request.resource.data.get('sharedPostId', null) == null || validSharedPost())
         && request.resource.data.createdAt == request.time && request.resource.data.likeCount == 0 && request.resource.data.dislikeCount == 0
         && (request.resource.data.get('pageId', null) == null
-          || get(/databases/$(database)/documents/pages/$(request.resource.data.pageId)).data.memberIds.hasAny([request.auth.uid]));
+          || (get(/databases/$(database)/documents/pages/$(request.resource.data.pageId)).data.memberIds.hasAny([request.auth.uid])
+            && !get(/databases/$(database)/documents/pages/$(request.resource.data.pageId)).data.get('bannedIds', []).hasAny([request.auth.uid])));
       // รีแอกชัน/คอมเมนต์ตรวจแค่สิทธิ์ดูโพสต์นี้เอง (canViewPostBase) ไม่ตรวจโพสต์ต้นฉบับของโพสต์แชร์ซ้ำ
       // เพราะสำเนาเนื้อหาต้นฉบับอยู่ในโพสต์แชร์อยู่แล้ว และการตรวจต้นฉบับทำให้เรียก get/exists เพิ่มจนเกินโควตา
       // หรือถูกปฏิเสธเมื่อต้นฉบับถูกลบ/ซ่อน ทั้งที่โพสต์แชร์ยังแสดงอยู่
@@ -308,7 +316,8 @@ service cloud.firestore {
             && request.resource.data.likeCount is int && request.resource.data.dislikeCount is int
             && request.resource.data.likeCount >= 0 && request.resource.data.dislikeCount >= 0
             && validReactionCounts()));
-      allow delete: if signedIn() && resource.data.authorId == request.auth.uid;
+      allow delete: if signedIn() && (resource.data.authorId == request.auth.uid
+        || (resource.data.get('pageId', null) != null && pageModerator(resource.data.pageId)));
 
       match /comments/{commentId} {
         function parentPost() { return get(/databases/$(database)/documents/posts/$(postId)).data; }
@@ -406,7 +415,8 @@ service cloud.firestore {
       }
 
       match /banned/{bannedUid} {
-        allow get, list: if communityModerator(communityId);
+        allow get: if self(bannedUid) || communityModerator(communityId);
+        allow list: if communityModerator(communityId);
         allow create: if communityModerator(communityId) && bannedUid != get(communityPath(communityId)).data.ownerId
           && request.resource.data.keys().hasOnly(['uid', 'createdAt'])
           && request.resource.data.uid == bannedUid && request.resource.data.createdAt == request.time
@@ -543,17 +553,51 @@ service cloud.firestore {
     }
 
     match /pages/{pageId} {
+      // เจ้าของหรือผู้ดูแลของเพจนี้ (ใช้กับ resource ปัจจุบัน)
+      function pageMod() {
+        return resource.data.ownerId == request.auth.uid
+          || resource.data.get('moderatorIds', []).hasAny([request.auth.uid]);
+      }
+      function notBannedSelf() {
+        return !resource.data.get('bannedIds', []).hasAny([request.auth.uid]);
+      }
+      // ผู้ดูแลแก้ได้เฉพาะ memberIds / pendingRequests / bannedIds ภายใต้เงื่อนไข:
+      // เจ้าของต้องยังเป็นสมาชิก, คนที่เพิ่มเข้า memberIds ต้องมาจาก pendingRequests,
+      // นำผู้ดูแลคนอื่นออก/แบนผู้ดูแลหรือเจ้าของไม่ได้, คนที่ถูกแบนต้องไม่อยู่ใน memberIds
+      function moderatorEdit() {
+        let oldMembers = resource.data.memberIds.toSet();
+        let newMembers = request.resource.data.memberIds.toSet();
+        let oldBanned = resource.data.get('bannedIds', []).toSet();
+        let newBanned = request.resource.data.get('bannedIds', []).toSet();
+        let mods = resource.data.get('moderatorIds', []);
+        return pageMod()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberIds', 'pendingRequests', 'bannedIds'])
+          && request.resource.data.memberIds is list
+          && request.resource.data.pendingRequests is list
+          && request.resource.data.get('bannedIds', []) is list
+          && newMembers.hasAny([resource.data.ownerId])
+          && newMembers.difference(oldMembers).hasOnly(resource.data.pendingRequests)
+          && !oldMembers.difference(newMembers).hasAny(mods)
+          && resource.data.pendingRequests.hasAll(request.resource.data.pendingRequests)
+          && !newBanned.difference(oldBanned).hasAny(mods)
+          && !newBanned.difference(oldBanned).hasAny([resource.data.ownerId])
+          && newMembers.intersection(newBanned).size() == 0;
+      }
       allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.ownerId == request.auth.uid
         && request.resource.data.memberIds == [request.auth.uid] && request.resource.data.pendingRequests == []
+        && request.resource.data.get('moderatorIds', []) == [] && request.resource.data.get('bannedIds', []) == []
         && request.resource.data.privacy in ['public', 'private'];
       allow update: if signedIn() && ((resource.data.ownerId == request.auth.uid
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'description', 'photoUrl', 'privacy', 'memberIds', 'pendingRequests']))
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'description', 'photoUrl', 'privacy', 'memberIds', 'pendingRequests', 'moderatorIds', 'bannedIds']))
+        || moderatorEdit()
         || (resource.data.privacy == 'public' && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberIds'])
+          && notBannedSelf()
           && request.resource.data.memberIds.hasAll(resource.data.memberIds)
           && request.resource.data.memberIds.size() == resource.data.memberIds.size() + 1
           && request.resource.data.memberIds.hasAny([request.auth.uid]) && !resource.data.memberIds.hasAny([request.auth.uid]))
         || (resource.data.privacy == 'private' && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pendingRequests'])
+          && notBannedSelf()
           && request.resource.data.pendingRequests.hasAll(resource.data.pendingRequests)
           && request.resource.data.pendingRequests.size() == resource.data.pendingRequests.size() + 1
           && request.resource.data.pendingRequests.hasAny([request.auth.uid]) && !resource.data.pendingRequests.hasAny([request.auth.uid]))

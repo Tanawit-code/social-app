@@ -6,6 +6,16 @@ class PageService {
   CollectionReference<Map<String, dynamic>> get _pages =>
       _db.collection('pages');
 
+  /// เจ้าของเพจหรือผู้ดูแล (moderatorIds) หรือไม่
+  static bool canModerate(Map<String, dynamic>? data, String uid) {
+    if (data == null || uid.isEmpty) return false;
+    return data['ownerId'] == uid ||
+        List<String>.from(data['moderatorIds'] ?? const []).contains(uid);
+  }
+
+  static bool isBanned(Map<String, dynamic>? data, String uid) =>
+      List<String>.from(data?['bannedIds'] ?? const []).contains(uid);
+
   Stream<QuerySnapshot<Map<String, dynamic>>> pages() =>
       _pages.orderBy('createdAt', descending: true).limit(200).snapshots();
 
@@ -34,6 +44,8 @@ class PageService {
       'privacy': privacy,
       'photoUrl': photoUrl ?? '',
       'memberIds': [ownerId],
+      'moderatorIds': [],
+      'bannedIds': [],
       'pendingRequests': [],
       'createdAt': FieldValue.serverTimestamp(),
     });
@@ -60,6 +72,7 @@ class PageService {
       final data = snap.data();
       if (!snap.exists || data?['privacy'] != 'public')
         throw Exception('เพจนี้ไม่ได้เปิดเป็นสาธารณะ');
+      if (isBanned(data, uid)) throw Exception('คุณถูกแบนจากเพจนี้');
       transaction.update(ref, {
         'memberIds': FieldValue.arrayUnion([uid]),
       });
@@ -96,6 +109,7 @@ class PageService {
       final data = snap.data();
       if (!snap.exists || data?['privacy'] != 'private')
         throw Exception('เพจนี้ไม่ได้เปิดเป็นส่วนตัว');
+      if (isBanned(data, uid)) throw Exception('คุณถูกแบนจากเพจนี้');
       final members = List<String>.from(data?['memberIds'] ?? const []);
       if (members.contains(uid)) return;
       final pending = List<String>.from(data?['pendingRequests'] ?? const []);
@@ -124,14 +138,15 @@ class PageService {
         'pendingRequests': FieldValue.arrayRemove([uid]),
       });
 
-  Future<void> approveRequest(String pageId, String ownerId, String uid) async {
+  /// เจ้าของเพจหรือผู้ดูแลอนุมัติคำขอ ([byUid] = ผู้กดอนุมัติ)
+  Future<void> approveRequest(String pageId, String byUid, String uid) async {
     final ref = _pages.doc(pageId);
     var pageName = '';
     await _db.runTransaction((transaction) async {
       final snap = await transaction.get(ref);
       final data = snap.data();
-      if (!snap.exists || data?['ownerId'] != ownerId)
-        throw Exception('เฉพาะเจ้าของเพจเท่านั้นที่อนุมัติสมาชิกได้');
+      if (!snap.exists || !canModerate(data, byUid))
+        throw Exception('เฉพาะเจ้าของหรือผู้ดูแลเพจเท่านั้นที่อนุมัติสมาชิกได้');
       final pending = List<String>.from(data?['pendingRequests'] ?? const []);
       if (!pending.contains(uid)) throw Exception('ไม่พบคำขอเข้าร่วมนี้');
       pageName = data?['name'] as String? ?? 'เพจ';
@@ -144,19 +159,19 @@ class PageService {
       pageId: pageId,
       pageName: pageName,
       toUid: uid,
-      fromUid: ownerId,
+      fromUid: byUid,
       type: NotifType.pageJoinApproved,
     );
   }
 
-  Future<void> declineRequest(String pageId, String ownerId, String uid) async {
+  Future<void> declineRequest(String pageId, String byUid, String uid) async {
     final ref = _pages.doc(pageId);
     var pageName = '';
     await _db.runTransaction((transaction) async {
       final snap = await transaction.get(ref);
       final data = snap.data();
-      if (!snap.exists || data?['ownerId'] != ownerId)
-        throw Exception('เฉพาะเจ้าของเพจเท่านั้นที่ปฏิเสธคำขอได้');
+      if (!snap.exists || !canModerate(data, byUid))
+        throw Exception('เฉพาะเจ้าของหรือผู้ดูแลเพจเท่านั้นที่ปฏิเสธคำขอได้');
       pageName = data?['name'] as String? ?? 'เพจ';
       transaction.update(ref, {
         'pendingRequests': FieldValue.arrayRemove([uid]),
@@ -166,8 +181,35 @@ class PageService {
       pageId: pageId,
       pageName: pageName,
       toUid: uid,
-      fromUid: ownerId,
+      fromUid: byUid,
       type: NotifType.pageJoinDeclined,
     );
   }
+
+  /// ตั้ง/ถอดผู้ดูแล — เฉพาะเจ้าของเพจ (rules บังคับ)
+  Future<void> setModerator(String pageId, String uid, bool moderator) =>
+      _pages.doc(pageId).update({
+        'moderatorIds': moderator
+            ? FieldValue.arrayUnion([uid])
+            : FieldValue.arrayRemove([uid]),
+      });
+
+  /// นำสมาชิกออกจากเพจ (เตะ) — ถ้า [ban] = true จะแบนด้วย (เข้าร่วม/ดู/โพสต์ไม่ได้อีก)
+  /// [targetIsModerator] ใช้เมื่อเจ้าของนำผู้ดูแลออก เพื่อถอดสิทธิ์ผู้ดูแลพร้อมกัน
+  Future<void> removeMember(
+    String pageId,
+    String uid, {
+    bool ban = false,
+    bool targetIsModerator = false,
+  }) => _pages.doc(pageId).update({
+    'memberIds': FieldValue.arrayRemove([uid]),
+    'pendingRequests': FieldValue.arrayRemove([uid]),
+    if (ban) 'bannedIds': FieldValue.arrayUnion([uid]),
+    if (targetIsModerator) 'moderatorIds': FieldValue.arrayRemove([uid]),
+  });
+
+  Future<void> unbanMember(String pageId, String uid) =>
+      _pages.doc(pageId).update({
+        'bannedIds': FieldValue.arrayRemove([uid]),
+      });
 }
